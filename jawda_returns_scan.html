@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jawda returns scan</title>
+<style>
+  :root { --brown:#4a2e1e; --brown-soft:#7a5a47; --pearl:#f3efe9; --paper:#fbf9f6; --ink:#1f1a17; --line:#d8cfc4; --ok:#2f6b3a; --warn:#9a4a1c; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--pearl); color: var(--ink); font: 16px/1.45 Georgia, "Times New Roman", serif; }
+  button, input { font: inherit; }
+  header { padding: 16px 20px 10px; border-bottom: 1px solid var(--line); background: var(--paper); display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+  header h1 { margin: 0; font-size: 20px; font-weight: normal; color: var(--brown); }
+  header .ver { color: var(--brown-soft); font-size: 13px; }
+  nav { display: flex; gap: 0; background: var(--paper); border-bottom: 1px solid var(--line); }
+  nav button { flex: 1; padding: 12px; border: 0; border-bottom: 3px solid transparent; background: none; color: var(--brown-soft); cursor: pointer; }
+  nav button.on { color: var(--brown); border-bottom-color: var(--brown); }
+  main { padding: 18px 20px 40px; max-width: 720px; margin: 0 auto; }
+  .view { display: none; } .view.on { display: block; }
+
+  .card { background: #fff; border: 1px solid var(--line); border-radius: 6px; padding: 16px; margin-bottom: 16px; }
+  .card.armed { border-color: var(--brown); box-shadow: 0 0 0 4px rgba(74,46,30,.10); }
+  label.lbl { display: block; color: var(--brown-soft); font-size: 14px; margin-bottom: 6px; }
+  input[type=text] { width: 100%; padding: 12px 14px; border: 1px solid var(--line); border-radius: 4px; background: #fff; font-size: 22px; font-family: ui-monospace, Menlo, Consolas, monospace; letter-spacing: .06em; }
+  input[type=text]:focus { outline: 2px solid var(--brown-soft); outline-offset: 1px; }
+  button { padding: 10px 16px; border: 1px solid var(--brown); border-radius: 4px; background: #fff; color: var(--brown); cursor: pointer; }
+  button.primary { background: var(--brown); color: #fff; }
+  button.big { width: 100%; padding: 14px; font-size: 18px; margin-top: 12px; }
+  button.link { border: 0; background: none; color: var(--brown-soft); padding: 4px 8px; text-decoration: underline; }
+  button:disabled { background: var(--line); border-color: var(--line); color: #8a8078; cursor: default; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  .actions > button { flex: 1; }
+
+  .orderhead { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+  .orderhead .num { font-size: 26px; color: var(--brown); font-family: ui-monospace, Menlo, Consolas, monospace; }
+  .orderhead .cnt { color: var(--brown-soft); font-size: 14px; }
+  .last { min-height: 26px; font-size: 15px; margin-top: 8px; color: var(--brown-soft); }
+  .last .sku { font-family: ui-monospace, Menlo, Consolas, monospace; font-weight: bold; color: var(--brown); }
+  .last.warn { color: var(--warn); }
+
+  ul.items { list-style: none; margin: 12px 0 0; padding: 0; }
+  ul.items li { display: flex; align-items: center; gap: 12px; padding: 10px 4px; border-top: 1px solid var(--line); }
+  ul.items li .sku { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 20px; flex: 1; }
+  ul.items li .qty { color: var(--brown-soft); min-width: 3ch; text-align: right; }
+  ul.items li button.x { width: 40px; height: 40px; padding: 0; border-radius: 20px; font-size: 20px; line-height: 1; color: var(--warn); border-color: var(--line); }
+  ul.items li.latest { background: var(--paper); }
+  .hint { color: var(--brown-soft); font-size: 14px; margin: 6px 0 0; }
+  .empty { color: var(--brown-soft); text-align: center; padding: 30px 0; }
+
+  .summary { display: flex; gap: 24px; align-items: baseline; margin-bottom: 12px; }
+  .summary .n { font-size: 30px; color: var(--brown); }
+  .summary .l { color: var(--brown-soft); font-size: 14px; }
+  details.order { border: 1px solid var(--line); border-radius: 6px; background: #fff; margin-bottom: 10px; }
+  details.order summary { padding: 12px 14px; cursor: pointer; display: flex; justify-content: space-between; align-items: baseline; list-style: none; }
+  details.order summary::-webkit-details-marker { display: none; }
+  details.order summary .num { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 20px; color: var(--brown); }
+  details.order summary .meta { color: var(--brown-soft); font-size: 14px; }
+  details.order .body { padding: 0 14px 12px; }
+  details.order .body ul.items li .sku { font-size: 17px; }
+  details.order .tools { display: flex; gap: 8px; margin-top: 10px; }
+  video { width: 100%; border-radius: 4px 4px 0 0; background: #000; display: none; margin-top: 10px; }
+  .camstate { padding: 10px 12px; font-size: 15px; border-radius: 0 0 4px 4px; display: none; }
+  .camstate.ready { background: var(--paper); border: 1px solid var(--line); border-top: 0; color: var(--brown-soft); }
+  .camstate.done { background: var(--ok); color: #fff; }
+</style>
+</head>
+<body>
+<header><h1>Jawda returns scan</h1><span class="ver" id="ver">v1.0 · 8 Sep 2026</span></header>
+<nav>
+  <button id="tab-scan" class="on">Scan</button>
+  <button id="tab-summary">Summary <span id="tab-count"></span></button>
+</nav>
+<main>
+
+  <!-- ===== Scan view ===== -->
+  <div class="view on" id="view-scan">
+
+    <div class="card armed" id="card-order">
+      <label class="lbl" for="order">Order number</label>
+      <input type="text" id="order" autocomplete="off" inputmode="numeric" placeholder="e.g. 39875">
+      <p class="hint">Type it or scan it from the packing slip, then press Enter.</p>
+      <button class="primary big" id="start">Start this order</button>
+    </div>
+
+    <div class="card" id="card-scan" hidden>
+      <div class="orderhead"><span>Order <span class="num" id="cur-order"></span></span><span class="cnt" id="cur-count">0 items</span></div>
+      <label class="lbl" for="scan">Scan each returned item</label>
+      <input type="text" id="scan" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="Ready">
+      <div class="last" id="last"></div>
+      <ul class="items" id="cur-items"></ul>
+      <button class="primary big" id="finish">Done with this order</button>
+      <div class="actions">
+        <button id="camera">Use phone camera</button>
+        <button id="cancel">Cancel this order</button>
+      </div>
+      <video id="video" playsinline muted></video>
+      <div id="camstate" class="camstate"></div>
+      <p class="hint">Press Enter on an empty scan box to finish the order.</p>
+    </div>
+
+  </div>
+
+  <!-- ===== Summary view ===== -->
+  <div class="view" id="view-summary">
+    <div class="summary">
+      <div><span class="n" id="n-orders">0</span> <span class="l">orders</span></div>
+      <div><span class="n" id="n-items">0</span> <span class="l">items</span></div>
+    </div>
+    <div class="actions" style="margin:0 0 16px">
+      <button class="primary" id="share" disabled>Share CSV</button>
+      <button id="download" disabled>Download CSV</button>
+    </div>
+    <div id="orders"></div>
+    <div class="empty" id="empty">No orders yet.</div>
+    <div class="actions" style="margin-top:24px">
+      <button id="reset">Clear all and start a new return list</button>
+    </div>
+  </div>
+
+</main>
+
+<script>
+(function () {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const KEY = 'jawda-returns-v1';
+
+  // ---------- State ----------
+  // orders: [{order, started, items:[{sku, at}]}]. current: index into orders or -1.
+  let orders = [], current = -1, lastSku = null;
+  try { const saved = JSON.parse(localStorage.getItem(KEY) || 'null'); if (saved && Array.isArray(saved.orders)) { orders = saved.orders; current = typeof saved.current === 'number' ? saved.current : -1; } } catch (e) { /* start fresh */ }
+  function save() { try { localStorage.setItem(KEY, JSON.stringify({ orders, current })); } catch (e) { /* storage unavailable */ } }
+
+  // ---------- Tabs ----------
+  function show(view) {
+    $('view-scan').classList.toggle('on', view === 'scan'); $('view-summary').classList.toggle('on', view === 'summary');
+    $('tab-scan').classList.toggle('on', view === 'scan'); $('tab-summary').classList.toggle('on', view === 'summary');
+    if (view === 'scan') focusScan(); else renderSummary();
+  }
+  $('tab-scan').addEventListener('click', () => show('scan'));
+  $('tab-summary').addEventListener('click', () => show('summary'));
+
+  // ---------- Order entry ----------
+  function cleanOrder(v) { return String(v || '').trim().replace(/^#/, '').toUpperCase(); }
+  function startOrder() {
+    const num = cleanOrder($('order').value);
+    if (!num) { $('order').focus(); return; }
+    const existing = orders.findIndex(o => o.order === num);
+    if (existing >= 0) { current = existing; }
+    else { orders.push({ order: num, started: new Date().toISOString(), items: [] }); current = orders.length - 1; }
+    $('order').value = ''; lastSku = null;
+    tone(true); save(); renderScan(); focusScan();
+  }
+  $('order').addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); startOrder(); } });
+  $('start').addEventListener('click', startOrder);
+
+  // ---------- Scanning ----------
+  const box = $('scan');
+  box.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' && e.key !== 'Tab') return;
+    e.preventDefault();
+    const v = box.value.trim();
+    if (!v) { finishOrder(); return; }        // empty Enter = done with this order
+    take(v); box.value = '';
+  });
+  function take(raw) {
+    if (current < 0) return;
+    const sku = String(raw || '').trim().toUpperCase();
+    if (!sku) return;
+    orders[current].items.push({ sku, at: new Date().toISOString() });
+    lastSku = sku;
+    tone(true); if (navigator.vibrate) navigator.vibrate(60);
+    save(); renderScan();
+  }
+  function removeItem(orderIdx, itemIdx) {
+    const it = orders[orderIdx].items.splice(itemIdx, 1)[0];
+    if (orderIdx === current) { flash(`Removed <span class="sku">${esc(it.sku)}</span>.`); renderScan(); }
+    save(); renderSummary();
+  }
+  function finishOrder() {
+    if (current < 0) return;
+    if (!orders[current].items.length && !confirm('No items scanned for this order. Finish anyway?')) { focusScan(); return; }
+    stopCamera();
+    current = -1; lastSku = null; save(); renderScan();
+    $('order').focus();
+  }
+  $('finish').addEventListener('click', finishOrder);
+  $('cancel').addEventListener('click', () => {
+    if (current < 0) return;
+    if (orders[current].items.length && !confirm('Remove this order and everything scanned for it?')) return;
+    stopCamera(); orders.splice(current, 1); current = -1; save(); renderScan(); $('order').focus();
+  });
+
+  function flash(html, warn) { const l = $('last'); l.innerHTML = html; l.classList.toggle('warn', !!warn); }
+  function focusScan() { if (current >= 0) box.focus(); else $('order').focus(); }
+  document.addEventListener('click', (e) => { if (!e.target.closest('input, button, select, textarea, a, video, summary')) focusScan(); });
+
+  function renderScan() {
+    const active = current >= 0;
+    $('card-order').hidden = active; $('card-scan').hidden = !active;
+    $('card-order').classList.toggle('armed', !active); $('card-scan').classList.toggle('armed', active);
+    $('tab-count').textContent = orders.length ? `(${orders.length})` : '';
+    if (!active) return;
+    const o = orders[current];
+    $('cur-order').textContent = o.order;
+    $('cur-count').textContent = `${o.items.length} item${o.items.length === 1 ? '' : 's'}`;
+    if (lastSku) { const n = o.items.filter(i => i.sku === lastSku).length; flash(`<span class="sku">${esc(lastSku)}</span> added${n > 1 ? ` (${n} of this SKU in this order)` : ''}.`); }
+    else if (!o.items.length) flash('Scan the first item.');
+    $('cur-items').innerHTML = o.items.map((it, k) =>
+      `<li class="${k === o.items.length - 1 ? 'latest' : ''}"><span class="sku">${esc(it.sku)}</span><button class="x" data-i="${k}" aria-label="Remove ${esc(it.sku)}">×</button></li>`).reverse().join('');
+  }
+  $('cur-items').addEventListener('click', (e) => { const b = e.target.closest('button.x'); if (b) { removeItem(current, +b.dataset.i); focusScan(); } });
+
+  // ---------- Summary ----------
+  function renderSummary() {
+    const items = orders.reduce((a, o) => a + o.items.length, 0);
+    $('n-orders').textContent = orders.length; $('n-items').textContent = items;
+    $('share').disabled = $('download').disabled = !items;
+    $('empty').hidden = !!orders.length;
+    $('tab-count').textContent = orders.length ? `(${orders.length})` : '';
+    $('orders').innerHTML = orders.map((o, oi) => {
+      const tally = new Map(); o.items.forEach(i => tally.set(i.sku, (tally.get(i.sku) || 0) + 1));
+      const rows = o.items.map((it, k) => `<li><span class="sku">${esc(it.sku)}</span><button class="x" data-o="${oi}" data-i="${k}" aria-label="Remove">×</button></li>`).join('');
+      return `<details class="order" ${oi === current ? 'open' : ''}><summary><span class="num">${esc(o.order)}</span><span class="meta">${o.items.length} item${o.items.length === 1 ? '' : 's'}, ${tally.size} SKU${tally.size === 1 ? '' : 's'}${oi === current ? ' · in progress' : ''}</span></summary>
+        <div class="body"><ul class="items">${rows || '<li class="hint">No items</li>'}</ul>
+        <div class="tools"><button data-reopen="${oi}">Add more to this order</button><button data-del="${oi}">Delete order</button></div></div></details>`;
+    }).join('');
+  }
+  $('orders').addEventListener('click', (e) => {
+    const x = e.target.closest('button.x'); if (x) { removeItem(+x.dataset.o, +x.dataset.i); return; }
+    const r = e.target.closest('button[data-reopen]'); if (r) { current = +r.dataset.reopen; lastSku = null; save(); renderScan(); show('scan'); return; }
+    const d = e.target.closest('button[data-del]'); if (d) {
+      const oi = +d.dataset.del; if (!confirm(`Delete order ${orders[oi].order} and its ${orders[oi].items.length} items?`)) return;
+      orders.splice(oi, 1); if (current === oi) current = -1; else if (current > oi) current--; save(); renderScan(); renderSummary();
+    }
+  });
+  $('reset').addEventListener('click', () => {
+    if (orders.length && !confirm(`Clear all ${orders.length} orders? Download the CSV first if you need it.`)) return;
+    stopCamera(); orders = []; current = -1; save(); renderScan(); renderSummary(); show('scan');
+  });
+
+  // ---------- CSV ----------
+  function csvCell(v) { v = String(v ?? ''); return /[",\r\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
+  function stamp() { const d = new Date(), p = (n) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}`; }
+  function buildCSV() {
+    const lines = ['Order,SKU,Qty,Scanned'];
+    for (const o of orders) {
+      const first = new Map(), tally = new Map();
+      for (const it of o.items) { tally.set(it.sku, (tally.get(it.sku) || 0) + 1); if (!first.has(it.sku)) first.set(it.sku, it.at); }
+      for (const [sku, qty] of tally) lines.push([o.order, sku, qty, first.get(sku).slice(0, 16).replace('T', ' ')].map(csvCell).join(','));
+    }
+    return '\ufeff' + lines.join('\r\n') + '\r\n';
+  }
+  function csvFile() { return new File([buildCSV()], `returns_${stamp()}.csv`, { type: 'text/csv;charset=utf-8' }); }
+  $('download').addEventListener('click', () => {
+    const f = csvFile(); const a = document.createElement('a'); a.href = URL.createObjectURL(f); a.download = f.name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  });
+  $('share').addEventListener('click', async () => {
+    const f = csvFile();
+    if (navigator.share && navigator.canShare && navigator.canShare({ files: [f] })) {
+      try { await navigator.share({ files: [f], title: 'Jawda returns', text: `Returns scanned ${stamp()}` }); } catch (e) { /* user cancelled */ }
+    } else { $('download').click(); }
+  });
+
+  // ---------- Beep ----------
+  let ctx = null;
+  function tone(ok) {
+    try {
+      ctx = ctx || new (window.AudioContext || window.webkitAudioContext)();
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.frequency.value = ok ? 1400 : 300; o.type = 'square'; g.gain.value = 0.08; o.connect(g); g.connect(ctx.destination);
+      o.start(); o.stop(ctx.currentTime + (ok ? 0.08 : 0.25));
+    } catch (e) { /* no audio */ }
+  }
+
+  // ---------- Phone camera: one count per label, re-arms when the frame is clear ----------
+  const CLEAR_MS = 700;
+  let stream = null, detector = null, ticking = false, armed = true, lastSeenAt = 0;
+  function stopCamera() { if (!stream) return; stream.getTracks().forEach(t => t.stop()); stream = null; $('video').style.display = 'none'; $('camstate').style.display = 'none'; $('camera').textContent = 'Use phone camera'; }
+  $('camera').addEventListener('click', async () => {
+    const v = $('video');
+    if (stream) { stopCamera(); focusScan(); return; }
+    if (!('BarcodeDetector' in window)) { flash('This browser cannot read barcodes from the camera. Use Chrome on Android, or a handheld scanner.', true); return; }
+    try {
+      detector = new BarcodeDetector({ formats: ['code_128'] });
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      v.srcObject = stream; v.style.display = 'block'; await v.play();
+      $('camera').textContent = 'Stop camera'; armed = true; setCamState('ready');
+      const loop = async () => {
+        if (!stream) return;
+        if (!ticking) {
+          ticking = true;
+          try {
+            const codes = (await detector.detect(v)).filter(c => c.rawValue);
+            const now = Date.now();
+            if (codes.length) { lastSeenAt = now; if (armed) { armed = false; take(codes[0].rawValue); setCamState('done', codes[0].rawValue.toUpperCase()); } }
+            else if (!armed && now - lastSeenAt > CLEAR_MS) { armed = true; setCamState('ready'); }
+          } catch (e) { /* frame not ready */ }
+          ticking = false;
+        }
+        requestAnimationFrame(loop);
+      };
+      loop();
+    } catch (e) { flash('Camera not available: ' + esc(e.message), true); }
+  });
+  function setCamState(state, value) { const el = $('camstate'); el.style.display = 'block'; el.className = 'camstate ' + state; el.textContent = state === 'ready' ? 'Ready. Point at the next label.' : `Counted ${value}. Move to the next garment.`; }
+
+  function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+  renderScan(); renderSummary(); focusScan();
+})();
+</script>
+</body>
+</html>
