@@ -54,7 +54,10 @@
   td.unknown { color: var(--warn); }
   tr.latest td { background: #fff; }
   .empty { color: var(--brown-soft); padding: 40px 0; text-align: center; }
-  video { width: 100%; max-width: 420px; border-radius: 4px; background: #000; display: none; margin-top: 8px; }
+  video { width: 100%; max-width: 420px; border-radius: 4px 4px 0 0; background: #000; display: none; margin-top: 8px; }
+  .camstate { max-width: 420px; padding: 10px 12px; font-size: 15px; border-radius: 0 0 4px 4px; }
+  .camstate.ready { background: #fff; border: 1px solid var(--line); border-top: 0; color: var(--brown-soft); }
+  .camstate.done { background: var(--ok); color: #fff; }
 </style>
 </head>
 <body>
@@ -75,6 +78,7 @@
         <button id="camera">Use phone camera</button>
       </div>
       <video id="video" playsinline muted></video>
+      <div id="camstate" class="camstate" style="display:none"></div>
     </section>
 
     <section>
@@ -248,25 +252,37 @@
   $('clear').addEventListener('click', () => { if (scans.length && !confirm(`Clear all ${scans.length} scans?`)) return; scans = []; lastKey = null; flash('Cleared.'); render(); box.focus(); });
 
   // ---------- Phone camera (Chrome on Android, and other browsers with BarcodeDetector) ----------
-  let stream = null, detector = null, ticking = false, lastCam = '', lastCamAt = 0;
+  // One count per label: after a read, the camera is disarmed until no barcode has been
+  // seen for CLEAR_MS. Moving to the next garment re-arms it. Hovering never double counts.
+  const CLEAR_MS = 700;
+  let stream = null, detector = null, ticking = false, armed = true, lastSeenAt = 0;
   $('camera').addEventListener('click', async () => {
     const v = $('video');
-    if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; v.style.display = 'none'; $('camera').textContent = 'Use phone camera'; box.focus(); return; }
+    if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; v.style.display = 'none'; $('camstate').style.display = 'none'; $('camera').textContent = 'Use phone camera'; box.focus(); return; }
     if (!('BarcodeDetector' in window)) { flash('This browser cannot read barcodes from the camera. Use Chrome on Android, or a handheld scanner.', true); return; }
     try {
       detector = new BarcodeDetector({ formats: ['code_128'] });
       stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
       v.srcObject = stream; v.style.display = 'block'; await v.play();
       $('camera').textContent = 'Stop camera';
+      armed = true; setCamState('ready');
       const loop = async () => {
         if (!stream) return;
         if (!ticking) {
           ticking = true;
           try {
-            const codes = await detector.detect(v);
-            for (const c of codes) {
-              const now = Date.now();
-              if (c.rawValue && (c.rawValue !== lastCam || now - lastCamAt > 1500)) { lastCam = c.rawValue; lastCamAt = now; take(c.rawValue); }
+            const codes = (await detector.detect(v)).filter(c => c.rawValue);
+            const now = Date.now();
+            if (codes.length) {
+              lastSeenAt = now;
+              if (armed) {
+                armed = false;
+                take(codes[0].rawValue);
+                if (navigator.vibrate) navigator.vibrate(80);
+                setCamState('done', codes[0].rawValue);
+              }
+            } else if (!armed && now - lastSeenAt > CLEAR_MS) {
+              armed = true; setCamState('ready');
             }
           } catch (e) { /* frame not ready */ }
           ticking = false;
@@ -276,6 +292,11 @@
       loop();
     } catch (e) { flash('Camera not available: ' + esc(e.message), true); }
   });
+  function setCamState(state, value) {
+    const el = $('camstate'); el.style.display = 'block';
+    el.className = 'camstate ' + state;
+    el.textContent = state === 'ready' ? 'Ready. Point at the next label.' : `Counted ${value}. Move to the next garment.`;
+  }
 
   function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
   render(); box.focus();
