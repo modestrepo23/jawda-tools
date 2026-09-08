@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jawda scan to CSV</title>
+<style>
+  :root { --brown:#4a2e1e; --brown-soft:#7a5a47; --pearl:#f3efe9; --paper:#fbf9f6; --ink:#1f1a17; --line:#d8cfc4; --ok:#2f6b3a; --warn:#9a4a1c; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--pearl); color: var(--ink); font: 15px/1.45 Georgia, "Times New Roman", serif; }
+  button, input { font: inherit; }
+  header { padding: 22px 28px 14px; border-bottom: 1px solid var(--line); background: var(--paper); }
+  header h1 { margin: 0; font-size: 22px; font-weight: normal; color: var(--brown); }
+  header p { margin: 4px 0 0; color: var(--brown-soft); font-size: 14px; }
+  main { display: grid; grid-template-columns: 380px 1fr; min-height: calc(100vh - 80px); }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  .panel { padding: 22px 28px; border-right: 1px solid var(--line); background: var(--paper); }
+  .work { padding: 22px 28px; }
+  section { margin-bottom: 26px; }
+  section h2 { font-size: 15px; font-weight: normal; margin: 0 0 8px; color: var(--brown); }
+  .hint { color: var(--brown-soft); font-size: 14px; margin: 0 0 8px; }
+  input[type=text] { width: 100%; padding: 7px 9px; border: 1px solid var(--line); border-radius: 3px; background: #fff; }
+  input[type=file] { width: 100%; font-size: 13px; }
+  button { padding: 8px 14px; border: 1px solid var(--brown); border-radius: 3px; background: #fff; color: var(--brown); cursor: pointer; }
+  button:hover { background: var(--pearl); }
+  button.primary { background: var(--brown); color: #fff; }
+  button.primary:hover { background: #3a2216; }
+  button:disabled { background: var(--line); border-color: var(--line); color: #8a8078; cursor: default; }
+  button:focus-visible, input:focus-visible { outline: 2px solid var(--brown-soft); outline-offset: 2px; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+  .check { display: flex; align-items: center; gap: 8px; font-size: 14px; margin: 6px 0; }
+
+  /* The scan box is the one thing that matters on this page. */
+  .scanbox { border: 2px solid var(--brown); border-radius: 4px; background: #fff; padding: 14px 16px; }
+  .scanbox label { display: block; color: var(--brown-soft); font-size: 14px; margin-bottom: 6px; }
+  .scanbox input { font-size: 22px; letter-spacing: .08em; font-family: ui-monospace, Menlo, Consolas, monospace; padding: 10px 12px; border: 1px solid var(--line); }
+  .scanbox.armed { box-shadow: 0 0 0 4px rgba(74,46,30,.12); }
+  .last { margin-top: 10px; min-height: 44px; font-size: 15px; }
+  .last .sku { font-family: ui-monospace, Menlo, Consolas, monospace; font-weight: bold; color: var(--brown); }
+  .last.warn { color: var(--warn); }
+
+  .summary { display: flex; gap: 28px; align-items: baseline; margin: 18px 0 14px; }
+  .summary .n { font-size: 30px; color: var(--brown); }
+  .summary .l { color: var(--brown-soft); font-size: 14px; }
+  .notes { margin: 0 0 14px; padding: 0; list-style: none; font-size: 14px; }
+  .notes li { padding: 6px 10px; border-left: 3px solid var(--line); margin-bottom: 6px; background: var(--paper); }
+  .notes li.warn { border-left-color: var(--warn); }
+  .notes li.ok { border-left-color: var(--ok); }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--line); }
+  th { color: var(--brown-soft); font-weight: normal; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  td.sku { font-family: ui-monospace, Menlo, Consolas, monospace; }
+  td.unknown { color: var(--warn); }
+  tr.latest td { background: #fff; }
+  .empty { color: var(--brown-soft); padding: 40px 0; text-align: center; }
+  video { width: 100%; max-width: 420px; border-radius: 4px; background: #000; display: none; margin-top: 8px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Jawda scan to CSV</h1>
+  <p>Scan each garment. Get a CSV of what was in the box.</p>
+</header>
+<main>
+  <div class="panel">
+    <section>
+      <div class="scanbox armed" id="scanbox">
+        <label for="scan">Scan here. Each scan is added on Enter.</label>
+        <input type="text" id="scan" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="Ready">
+        <div class="last" id="last">No scans yet.</div>
+      </div>
+      <div class="actions">
+        <button id="undo" disabled>Undo last scan</button>
+        <button id="camera">Use phone camera</button>
+      </div>
+      <video id="video" playsinline muted></video>
+    </section>
+
+    <section>
+      <h2>Names (optional)</h2>
+      <p class="hint">Load your SKU list (SKU, Name) so the CSV includes product names and unknown SKUs are flagged.</p>
+      <input type="file" id="master" accept=".csv,.txt,.tsv">
+      <div id="masterinfo" class="hint" style="margin-top:6px"></div>
+    </section>
+
+    <section>
+      <h2>Options</h2>
+      <label class="check"><input type="checkbox" id="beep" checked> Beep on each scan</label>
+      <label class="check"><input type="checkbox" id="upper" checked> Convert scans to upper case</label>
+      <label class="check"><input type="checkbox" id="lock"> Only accept SKUs that are in the loaded list</label>
+      <div class="actions">
+        <button id="clear">Clear all scans</button>
+      </div>
+    </section>
+  </div>
+
+  <div class="work">
+    <div class="summary">
+      <div><span class="n" id="n-scans">0</span> <span class="l">scanned</span></div>
+      <div><span class="n" id="n-skus">0</span> <span class="l">SKUs</span></div>
+      <div style="margin-left:auto; display:flex; gap:8px">
+        <button id="dl-log" disabled>Download scan log</button>
+        <button class="primary" id="dl" disabled>Download CSV</button>
+      </div>
+    </div>
+    <ul class="notes" id="notes"></ul>
+    <div class="empty" id="empty">Nothing scanned yet. Click in the scan box and scan the first garment.</div>
+    <table id="tally" hidden>
+      <thead><tr><th>SKU</th><th>Name</th><th style="text-align:right">Qty</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</main>
+
+<script>
+(function () {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  let scans = [];              // [{sku, at}]
+  let master = new Map();      // SKU (upper) -> name
+  let lastKey = null;
+
+  // ---------- Input ----------
+  const box = $('scan');
+  box.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); take(box.value); box.value = ''; }
+  });
+  // Keep focus on the scan box unless the user is using another control.
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('input, button, select, textarea, a, video')) box.focus();
+  });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) box.focus(); });
+  box.addEventListener('focus', () => $('scanbox').classList.add('armed'));
+  box.addEventListener('blur', () => $('scanbox').classList.remove('armed'));
+
+  function take(raw) {
+    let sku = String(raw || '').trim();
+    if (!sku) return;
+    if ($('upper').checked) sku = sku.toUpperCase();
+    const known = master.has(sku);
+    if ($('lock').checked && master.size && !known) {
+      flash(`<span class="sku">${esc(sku)}</span> is not in the loaded list. Not added.`, true);
+      tone(false); return;
+    }
+    scans.push({ sku, at: new Date() });
+    lastKey = sku;
+    const count = scans.filter(s => s.sku === sku).length;
+    flash(`<span class="sku">${esc(sku)}</span> ${esc(master.get(sku) || (master.size ? 'not in list' : ''))}<br>${count === 1 ? 'first of this SKU' : count + ' of this SKU so far'}`, master.size && !known);
+    tone(true);
+    render();
+  }
+
+  function flash(html, warn) { const l = $('last'); l.innerHTML = html; l.classList.toggle('warn', !!warn); }
+
+  // Short beep so the operator does not have to look at the screen.
+  let ctx = null;
+  function tone(ok) {
+    if (!$('beep').checked) return;
+    try {
+      ctx = ctx || new (window.AudioContext || window.webkitAudioContext)();
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.frequency.value = ok ? 1400 : 300; o.type = 'square';
+      g.gain.value = 0.08; o.connect(g); g.connect(ctx.destination);
+      o.start(); o.stop(ctx.currentTime + (ok ? 0.08 : 0.25));
+    } catch (e) { /* no audio available */ }
+  }
+
+  // ---------- Master list ----------
+  $('master').addEventListener('change', (e) => {
+    const f = e.target.files[0]; if (!f) return;
+    const r = new FileReader();
+    r.onload = () => {
+      const rows = parseDelimited(String(r.result));
+      if (!rows.length) { $('masterinfo').textContent = 'No rows found.'; return; }
+      let iS = 0, iN = 1;
+      const head = rows[0].map(h => h.toLowerCase());
+      let data = rows;
+      if (head.some(h => /sku/.test(h))) {
+        iS = head.findIndex(h => /sku/.test(h));
+        iN = head.findIndex(h => /print|name|desc|product|title/.test(h));
+        if (iN < 0 || iN === iS) iN = head.findIndex((h, i) => i !== iS);
+        data = rows.slice(1);
+      }
+      master = new Map();
+      for (const row of data) { const s = (row[iS] || '').trim().toUpperCase(); if (s) master.set(s, (row[iN] || '').trim()); }
+      $('masterinfo').textContent = `${master.size} SKUs loaded from ${f.name}.`;
+      render();
+    };
+    r.readAsText(f, 'windows-1252');
+  });
+
+  function parseDelimited(text) {
+    const first = text.split(/\r?\n/).find(l => l.trim()) || '';
+    const counts = { '\t': (first.match(/\t/g) || []).length, ';': (first.match(/;/g) || []).length, ',': (first.match(/,/g) || []).length };
+    const delim = Object.keys(counts).sort((a, b) => counts[b] - counts[a])[0] || ',';
+    const rows = []; let row = [], cell = '', q = false;
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (q) { if (ch === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else q = false; } else cell += ch; }
+      else if (ch === '"') q = true;
+      else if (ch === delim) { row.push(cell); cell = ''; }
+      else if (ch === '\n' || ch === '\r') { if (ch === '\r' && text[i + 1] === '\n') i++; row.push(cell); rows.push(row); row = []; cell = ''; }
+      else cell += ch;
+    }
+    row.push(cell); rows.push(row);
+    return rows.map(r => r.map(c => c.trim())).filter(r => r.some(c => c !== ''));
+  }
+
+  // ---------- Tally ----------
+  function tally() {
+    const m = new Map();
+    for (const s of scans) m.set(s.sku, (m.get(s.sku) || 0) + 1);
+    return [...m.entries()].map(([sku, qty]) => ({ sku, qty, name: master.get(sku) || '', known: master.has(sku) }));
+  }
+
+  function render() {
+    const t = tally();
+    $('n-scans').textContent = scans.length;
+    $('n-skus').textContent = t.length;
+    $('dl').disabled = $('dl-log').disabled = !scans.length;
+    $('undo').disabled = !scans.length;
+    $('empty').hidden = !!scans.length;
+    $('tally').hidden = !scans.length;
+    const unknown = master.size ? t.filter(x => !x.known) : [];
+    $('notes').innerHTML = unknown.length ? `<li class="warn">${unknown.length} scanned SKU${unknown.length > 1 ? 's are' : ' is'} not in the loaded list: ${esc(unknown.map(u => u.sku).join(', '))}.</li>` : '';
+    $('tally').querySelector('tbody').innerHTML = t.map(x =>
+      `<tr class="${x.sku === lastKey ? 'latest' : ''}"><td class="sku">${esc(x.sku)}</td><td class="${master.size && !x.known ? 'unknown' : ''}">${esc(x.name || (master.size ? 'not in list' : ''))}</td><td class="num">${x.qty}</td></tr>`).join('');
+  }
+
+  // ---------- Export ----------
+  function csvCell(v) { v = String(v ?? ''); return /[",\r\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
+  function stamp() { const d = new Date(), p = (n) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}`; }
+  function download(name, text) {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob(['\ufeff' + text], { type: 'text/csv;charset=utf-8' }));
+    a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+  $('dl').addEventListener('click', () => {
+    const lines = ['SKU,Print Name,Qty', ...tally().map(x => [x.sku, x.name, x.qty].map(csvCell).join(','))];
+    download(`scan_${stamp()}.csv`, lines.join('\r\n') + '\r\n');
+  });
+  $('dl-log').addEventListener('click', () => {
+    const lines = ['#,SKU,Name,Scanned at', ...scans.map((s, i) => [i + 1, s.sku, master.get(s.sku) || '', s.at.toISOString()].map(csvCell).join(','))];
+    download(`scan_log_${stamp()}.csv`, lines.join('\r\n') + '\r\n');
+  });
+  $('undo').addEventListener('click', () => { const s = scans.pop(); lastKey = scans.length ? scans[scans.length - 1].sku : null; flash(s ? `Removed <span class="sku">${esc(s.sku)}</span>.` : ''); render(); box.focus(); });
+  $('clear').addEventListener('click', () => { if (scans.length && !confirm(`Clear all ${scans.length} scans?`)) return; scans = []; lastKey = null; flash('Cleared.'); render(); box.focus(); });
+
+  // ---------- Phone camera (Chrome on Android, and other browsers with BarcodeDetector) ----------
+  let stream = null, detector = null, ticking = false, lastCam = '', lastCamAt = 0;
+  $('camera').addEventListener('click', async () => {
+    const v = $('video');
+    if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; v.style.display = 'none'; $('camera').textContent = 'Use phone camera'; box.focus(); return; }
+    if (!('BarcodeDetector' in window)) { flash('This browser cannot read barcodes from the camera. Use Chrome on Android, or a handheld scanner.', true); return; }
+    try {
+      detector = new BarcodeDetector({ formats: ['code_128'] });
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      v.srcObject = stream; v.style.display = 'block'; await v.play();
+      $('camera').textContent = 'Stop camera';
+      const loop = async () => {
+        if (!stream) return;
+        if (!ticking) {
+          ticking = true;
+          try {
+            const codes = await detector.detect(v);
+            for (const c of codes) {
+              const now = Date.now();
+              if (c.rawValue && (c.rawValue !== lastCam || now - lastCamAt > 1500)) { lastCam = c.rawValue; lastCamAt = now; take(c.rawValue); }
+            }
+          } catch (e) { /* frame not ready */ }
+          ticking = false;
+        }
+        requestAnimationFrame(loop);
+      };
+      loop();
+    } catch (e) { flash('Camera not available: ' + esc(e.message), true); }
+  });
+
+  function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+  render(); box.focus();
+})();
+</script>
+</body>
+</html>
