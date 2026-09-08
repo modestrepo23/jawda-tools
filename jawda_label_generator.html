@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jawda label printer</title>
+<style>
+  :root {
+    --brown: #4a2e1e;
+    --brown-soft: #7a5a47;
+    --pearl: #f3efe9;
+    --paper: #fbf9f6;
+    --ink: #1f1a17;
+    --line: #d8cfc4;
+    --ok: #2f6b3a;
+    --warn: #9a4a1c;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--pearl); color: var(--ink);
+    font: 15px/1.45 Georgia, "Times New Roman", serif; }
+  button, input, textarea, select { font: inherit; }
+
+  header { padding: 22px 28px 14px; border-bottom: 1px solid var(--line); background: var(--paper); }
+  header h1 { margin: 0; font-size: 22px; font-weight: normal; color: var(--brown); letter-spacing: .01em; }
+  header p { margin: 4px 0 0; color: var(--brown-soft); font-size: 14px; }
+
+  main { display: grid; grid-template-columns: 380px 1fr; gap: 0; min-height: calc(100vh - 80px); }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+
+  .panel { padding: 22px 28px; border-right: 1px solid var(--line); background: var(--paper); }
+  .work { padding: 22px 28px; }
+
+  section { margin-bottom: 26px; }
+  section h2 { font-size: 15px; font-weight: normal; margin: 0 0 8px; color: var(--brown); }
+  label.field { display: block; margin-bottom: 10px; font-size: 14px; }
+  label.field span { display: block; color: var(--brown-soft); margin-bottom: 3px; }
+  input[type=text], input[type=number], textarea, select {
+    width: 100%; padding: 7px 9px; border: 1px solid var(--line); border-radius: 3px; background: #fff; color: var(--ink);
+  }
+  textarea { min-height: 96px; resize: vertical; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; }
+  input[type=file] { width: 100%; font-size: 13px; }
+  .row { display: flex; gap: 8px; }
+  .row > * { flex: 1; }
+  .row > .narrow { flex: 0 0 72px; }
+
+  button { padding: 8px 14px; border: 1px solid var(--brown); border-radius: 3px; background: #fff; color: var(--brown); cursor: pointer; }
+  button:hover { background: var(--pearl); }
+  button.primary { background: var(--brown); color: #fff; }
+  button.primary:hover { background: #3a2216; }
+  button.primary:disabled { background: var(--line); border-color: var(--line); color: #8a8078; cursor: default; }
+  button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px solid var(--brown-soft); outline-offset: 2px; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+  .check { display: flex; align-items: center; gap: 8px; font-size: 14px; margin: 6px 0; }
+
+  .summary { display: flex; gap: 28px; align-items: baseline; margin-bottom: 14px; }
+  .summary .n { font-size: 30px; color: var(--brown); }
+  .summary .l { color: var(--brown-soft); font-size: 14px; }
+  .notes { margin: 0 0 14px; padding: 0; list-style: none; font-size: 14px; }
+  .notes li { padding: 6px 10px; border-left: 3px solid var(--line); margin-bottom: 6px; background: var(--paper); }
+  .notes li.warn { border-left-color: var(--warn); }
+  .notes li.ok { border-left-color: var(--ok); }
+
+  table.list { width: 100%; border-collapse: collapse; font-size: 14px; margin-bottom: 18px; }
+  table.list th, table.list td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--line); }
+  table.list th { color: var(--brown-soft); font-weight: normal; }
+  table.list td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  table.list td.sku { font-family: ui-monospace, Menlo, Consolas, monospace; }
+  .empty { color: var(--brown-soft); padding: 40px 0; text-align: center; }
+
+  .preview-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; }
+  .preview-head small { color: var(--brown-soft); }
+  .sheet { display: flex; flex-wrap: wrap; gap: 6mm; }
+
+  /* The label itself. Sizes come from CSS variables set by the tool. */
+  .label {
+    width: var(--lw); height: var(--lh);
+    padding: 1.6mm 2mm 1.4mm; background: #fff; color: #000;
+    display: flex; flex-direction: column; justify-content: space-between; align-items: center;
+    overflow: hidden; break-inside: avoid; page-break-after: always;
+    font-family: Arial, Helvetica, sans-serif;
+  }
+  .label .name { width: 100%; text-align: center; font-size: 2.7mm; line-height: 1.15; font-weight: bold;
+    max-height: 6.4mm; overflow: hidden; overflow-wrap: anywhere; }
+  .label .bars { display: block; }
+  .label .code { font-size: 3.2mm; letter-spacing: .6mm; line-height: 1; }
+  .label svg { shape-rendering: crispEdges; display: block; }
+  @media screen { .label { outline: 1px solid var(--line); } }
+
+  /* Divider label printed at the head of each group */
+  .label.divider { justify-content: center; border: 1.2mm solid #000; padding: 1mm 2mm; }
+  .label.divider .g { font-size: 6.5mm; font-weight: bold; line-height: 1; letter-spacing: .3mm; }
+  .label.divider .gname { font-size: 2.5mm; font-weight: bold; margin-top: 1.4mm; text-align: center; max-height: 6mm; overflow: hidden; overflow-wrap: anywhere; line-height: 1.15; }
+  .label.divider .gcount { font-size: 2.6mm; margin-top: 2mm; }
+
+  table.groups td.g { font-weight: bold; color: var(--brown); white-space: nowrap; }
+  table.groups td.act { text-align: right; }
+  table.groups button { padding: 3px 10px; font-size: 13px; }
+  table.list td.gcell { color: var(--brown-soft); white-space: nowrap; }
+  #scope { width: auto; padding: 7px 9px; }
+
+  details.help { font-size: 14px; margin-top: 6px; }
+  details.help summary { cursor: pointer; color: var(--brown); }
+  details.help ol { padding-left: 20px; margin: 8px 0; }
+  details.help li { margin-bottom: 4px; }
+
+  @media print {
+    html, body { background: #fff; }
+    header, .panel, .summary, .notes, table.list, .preview-head, .empty { display: none !important; }
+    main { display: block; min-height: 0; }
+    .work { padding: 0; }
+    .sheet { display: block; }
+    .label { outline: none; margin: 0; }
+    .label:last-child { page-break-after: auto; }
+  }
+</style>
+<style id="pagestyle">@page { size: 45mm 26mm; margin: 0; }</style>
+</head>
+<body>
+<header>
+  <h1>Jawda label printer</h1>
+  <p>Load a list of SKU, name and quantity. Get one Code 128 label per garment.</p>
+</header>
+
+<main>
+  <div class="panel">
+
+    <section>
+      <h2>Load a CSV</h2>
+      <input type="file" id="file" accept=".csv,.txt,.tsv">
+      <div class="actions">
+        <button id="template">Download CSV template</button>
+      </div>
+    </section>
+
+    <section>
+      <h2>Or paste rows</h2>
+      <textarea id="paste" placeholder="WJMDKH, Jawda black-ctw-amal-pleated-abaya 54, 20&#10;WMC0TO, Jawda black-ctw-amal-pleated-abaya 50, 10"></textarea>
+      <div class="actions">
+        <button id="usepaste">Use pasted rows</button>
+      </div>
+    </section>
+
+    <section>
+      <h2>Add one label</h2>
+      <div class="row">
+        <label class="field"><span>SKU</span><input type="text" id="one-sku" maxlength="20" autocomplete="off"></label>
+        <label class="field narrow"><span>Qty</span><input type="number" id="one-qty" value="1" min="1"></label>
+      </div>
+      <label class="field"><span>Name</span><input type="text" id="one-name" autocomplete="off"></label>
+      <div class="actions">
+        <button id="addone">Add to list</button>
+        <button id="sample">Add a test label</button>
+      </div>
+    </section>
+
+    <section>
+      <h2>Options</h2>
+      <label class="check"><input type="checkbox" id="strip" checked> Remove "Jawda" from the printed name</label>
+      <label class="check"><input type="checkbox" id="sortname"> Sort by name</label>
+      <div class="row">
+        <label class="field"><span>Label width (mm)</span><input type="number" id="lw" value="45" min="20" max="120" step="1"></label>
+        <label class="field"><span>Label height (mm)</span><input type="number" id="lh" value="26" min="12" max="80" step="1"></label>
+      </div>
+      <div class="actions">
+        <button id="clear">Clear list</button>
+      </div>
+    </section>
+
+    <details class="help">
+      <summary>Print setup</summary>
+      <ol>
+        <li>Set the label stock to 45 × 26 mm in the printer driver once (Printing preferences → Stock or Page setup).</li>
+        <li>Press Print here. In the dialog choose the label printer.</li>
+        <li>Paper size: 45 × 26 mm. Margins: none. Scale: 100%. Headers and footers: off.</li>
+        <li>Print one test label and scan it before running a full batch.</li>
+      </ol>
+    </details>
+
+  </div>
+
+  <div class="work">
+    <div class="summary">
+      <div><span class="n" id="n-skus">0</span> <span class="l">SKUs</span></div>
+      <div><span class="n" id="n-labels">0</span> <span class="l">labels</span></div>
+      <div id="scope-wrap" style="margin-left:auto; display:flex; gap:8px; align-items:center">
+        <select id="scope" hidden></select>
+        <button class="primary" id="print" disabled>Print labels</button>
+      </div>
+    </div>
+    <ul class="notes" id="notes"></ul>
+    <table class="list groups" id="groups" hidden>
+      <thead><tr><th>Group</th><th>Products</th><th style="text-align:right">SKUs</th><th style="text-align:right">Labels</th><th></th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <table class="list" id="list" hidden>
+      <thead><tr><th class="gcol">Group</th><th>SKU</th><th>Printed name</th><th style="text-align:right">Qty</th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <div class="preview-head" id="preview-head" hidden>
+      <span>Preview at actual size</span>
+      <small id="preview-note"></small>
+    </div>
+    <div class="empty" id="empty">Nothing loaded yet. Load a CSV, paste rows, or add a test label.</div>
+    <div class="sheet" id="sheet"></div>
+  </div>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  // ---------- Code 128 (Set B) ----------
+  // Pattern for each value 0-106: bar/space widths in modules.
+  const PATTERNS = [
+  '212222','222122','222221','121223','121322','131222','122213','122312','132212','221213',
+  '221312','231212','112232','122132','122231','113222','123122','123221','223211','221132',
+  '221231','213212','223112','312131','311222','321122','321221','312212','322112','322211',
+  '212123','212321','232121','111323','131123','131321','112313','132113','132311','211313',
+  '231113','231311','112133','112331','132131','113123','113321','133121','313121','211331',
+  '231131','213113','213311','213131','311123','311321','331121','312113','312311','332111',
+  '314111','221411','431111','111224','111422','121124','121421','141122','141221','112214',
+  '112412','122114','122411','142112','142211','241211','221114','413111','241112','134111',
+  '111242','121142','121241','114212','124112','124211','411212','421112','421211','212141',
+  '214121','412121','111143','111341','131141','114113','114311','411113','411311','113141',
+  '114131','311141','411131','211412','211214','211232','2331112'];
+  const START_B = 104, STOP = 106;
+
+  // Returns an array of {bar:boolean, w:number} in modules, or null if a character cannot be encoded.
+  function encode128B(text) {
+    const values = [START_B];
+    for (const ch of text) {
+      const c = ch.charCodeAt(0);
+      if (c < 32 || c > 126) return null;
+      values.push(c - 32);
+    }
+    let sum = START_B;
+    for (let i = 1; i < values.length; i++) sum += values[i] * i;
+    values.push(sum % 103);
+    values.push(STOP);
+    const runs = [];
+    for (const v of values) {
+      const p = PATTERNS[v];
+      for (let i = 0; i < p.length; i++) runs.push({ bar: i % 2 === 0, w: +p[i] });
+    }
+    return runs;
+  }
+
+  function barcodeSVG(text, maxWidthMm, heightMm) {
+    const runs = encode128B(text);
+    if (!runs) return null;
+    const modules = runs.reduce((a, r) => a + r.w, 0);
+    // Prefer whole dots at 203 dpi: 3 dots = 0.375mm, 2 dots = 0.25mm.
+    let x = 0.375;
+    if (modules * x > maxWidthMm) x = 0.25;
+    if (modules * x > maxWidthMm) x = maxWidthMm / modules;
+    const w = (modules * x).toFixed(3);
+    let pos = 0, rects = '';
+    for (const r of runs) {
+      if (r.bar) rects += `<rect x="${pos}" y="0" width="${r.w}" height="1"/>`;
+      pos += r.w;
+    }
+    return `<svg class="bars" xmlns="http://www.w3.org/2000/svg" width="${w}mm" height="${heightMm}mm" viewBox="0 0 ${modules} 1" preserveAspectRatio="none"><g fill="#000">${rects}</g></svg>`;
+  }
+
+  // ---------- CSV parsing ----------
+  function parseDelimited(text) {
+    const rows = []; let row = [], cell = '', q = false;
+    const delim = detectDelimiter(text);
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (q) {
+        if (ch === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else q = false; }
+        else cell += ch;
+      } else if (ch === '"') q = true;
+      else if (ch === delim) { row.push(cell); cell = ''; }
+      else if (ch === '\n' || ch === '\r') {
+        if (ch === '\r' && text[i + 1] === '\n') i++;
+        row.push(cell); rows.push(row); row = []; cell = '';
+      } else cell += ch;
+    }
+    row.push(cell); rows.push(row);
+    return rows.map(r => r.map(c => c.trim())).filter(r => r.some(c => c !== ''));
+  }
+  function detectDelimiter(text) {
+    const first = text.split(/\r?\n/).find(l => l.trim()) || '';
+    const counts = { '\t': (first.match(/\t/g) || []).length, ';': (first.match(/;/g) || []).length, ',': (first.match(/,/g) || []).length };
+    return Object.keys(counts).sort((a, b) => counts[b] - counts[a])[0] || ',';
+  }
+
+  // Turn rows into [{sku, name, qty}]. Detects a header if present.
+  function rowsToItems(rows, notes) {
+    if (!rows.length) return [];
+    let iS = 0, iN = 1, iQ = 2, iG = -1;
+    const head = rows[0].map(h => h.toLowerCase());
+    const looksLikeHeader = head.some(h => /sku/.test(h));
+    if (looksLikeHeader) {
+      const find = (re) => head.findIndex(h => re.test(h));
+      iS = find(/sku/);
+      iG = find(/group|batch/);
+      iN = find(/print|name|desc|product|title/); if (iN === iS || iN === iG) iN = -1;
+      iQ = find(/qty|quant|number|units|count/);
+      if (iN < 0) iN = head.findIndex((h, i) => i !== iS && i !== iQ && i !== iG);
+      rows = rows.slice(1);
+      notes.push({ t: 'ok', m: `Header found. Using columns: SKU = "${head[iS]}", name = "${head[iN] || 'none'}", qty = "${head[iQ] || 'none (1 each)'}"${iG >= 0 ? `, group = "${head[iG]}"` : ''}.` });
+    } else {
+      notes.push({ t: 'ok', m: 'No header row. Reading columns as SKU, name, qty.' });
+    }
+    const items = [];
+    for (const r of rows) {
+      const sku = (r[iS] || '').trim();
+      if (!sku) continue;
+      const name = iN >= 0 ? (r[iN] || '').trim() : '';
+      const group = iG >= 0 ? (r[iG] || '').trim() : '';
+      let qty = iQ >= 0 ? parseInt(String(r[iQ]).replace(/[^\d-]/g, ''), 10) : 1;
+      if (isNaN(qty)) qty = 1;
+      items.push({ sku, name, qty, group });
+    }
+    return items;
+  }
+
+  // ---------- State ----------
+  let items = [];   // [{sku, name, qty}]
+  const $ = (id) => document.getElementById(id);
+
+  function printedName(name) {
+    let n = name || '';
+    if ($('strip').checked) n = n.replace(/^\s*jawda\s+/i, '');
+    return n;
+  }
+
+  function mergeItems(list, notes) {
+    const map = new Map(); let merged = 0;
+    for (const it of list) {
+      const key = it.sku.toUpperCase();
+      if (map.has(key)) { const m = map.get(key); m.qty += it.qty; merged++; if (!m.name && it.name) m.name = it.name; if (!m.group && it.group) m.group = it.group; }
+      else map.set(key, { sku: it.sku, name: it.name, qty: it.qty, group: it.group || '' });
+    }
+    if (merged) notes.push({ t: 'warn', m: `${merged} duplicate SKU row${merged > 1 ? 's' : ''} merged. Quantities were added together.` });
+    return [...map.values()];
+  }
+
+  function render(notes) {
+    notes = notes || [];
+    const lw = Math.max(20, +$('lw').value || 45), lh = Math.max(12, +$('lh').value || 26);
+    document.documentElement.style.setProperty('--lw', lw + 'mm');
+    document.documentElement.style.setProperty('--lh', lh + 'mm');
+    $('pagestyle').textContent = `@page { size: ${lw}mm ${lh}mm; margin: 0; }`;
+
+    let list = items.filter(i => i.qty > 0);
+    if ($('sortname').checked) list = [...list].sort((a, b) => printedName(a.name).localeCompare(printedName(b.name)) || a.sku.localeCompare(b.sku));
+
+    const bad = list.filter(i => !encode128B(i.sku));
+    if (bad.length) notes.push({ t: 'warn', m: `Cannot encode: ${bad.map(b => b.sku).join(', ')}. SKUs must use plain letters, digits and punctuation only.` });
+    const noName = list.filter(i => !i.name);
+    if (noName.length) notes.push({ t: 'warn', m: `${noName.length} SKU${noName.length > 1 ? 's have' : ' has'} no name: ${noName.slice(0, 5).map(b => b.sku).join(', ')}${noName.length > 5 ? '…' : ''}.` });
+    const total = list.reduce((a, i) => a + i.qty, 0);
+
+    // ----- Groups: driven only by the Group column -----
+    const hasGroups = list.some(i => i.group);
+    const groups = [];            // [{n, name, items:[], labels}]
+    const byKey = new Map();
+    if (hasGroups) {
+      const keys = [...new Set(list.map(i => i.group || ''))];
+      keys.sort((a, b) => {
+        if (a === '') return 1; if (b === '') return -1;
+        const na = parseFloat(a), nb = parseFloat(b);
+        if (!isNaN(na) && !isNaN(nb)) return na - nb;
+        return a.localeCompare(b, undefined, { numeric: true });
+      });
+      keys.forEach((k, idx) => { const g = { n: idx + 1, name: k === '' ? 'No group' : k, key: k, items: [], labels: 0 }; byKey.set(k, g); groups.push(g); });
+      for (const i of list) { const g = byKey.get(i.group || ''); g.items.push(i); g.labels += i.qty; i._g = g.name; }
+      const ung = byKey.get('');
+      if (ung) notes.push({ t: 'warn', m: `${ung.items.length} SKU${ung.items.length > 1 ? 's have' : ' has'} no group value. They print last as "No group".` });
+    }
+    const mode = hasGroups ? 'column' : 'none';
+    const grouped = mode !== 'none' && groups.length > 0;
+
+    // Scope selector: all groups, or one group.
+    const scope = $('scope');
+    const prev = scope.value;
+    scope.innerHTML = grouped ? `<option value="all">All groups (${total} labels)</option>` + groups.map(g => `<option value="${g.n}">${esc(groupTitle(g))} (${g.labels} labels)</option>`).join('') : '';
+    scope.hidden = !grouped;
+    if (grouped && [...scope.options].some(o => o.value === prev)) scope.value = prev;
+    const sel = grouped ? scope.value : 'all';
+    const printing = sel === 'all' ? list : (groups.find(g => String(g.n) === sel) || { items: [] }).items;
+    const printTotal = printing.reduce((a, i) => a + i.qty, 0);
+
+    $('n-skus').textContent = list.length;
+    $('n-labels').textContent = total;
+    $('print').disabled = printTotal === 0 || bad.length > 0;
+    $('print').textContent = sel === 'all' ? 'Print labels' : `Print ${groupTitle(groups.find(g => String(g.n) === sel))}`;
+    $('notes').innerHTML = notes.map(n => `<li class="${n.t}">${esc(n.m)}</li>`).join('');
+
+    const gbody = $('groups').querySelector('tbody');
+    gbody.innerHTML = grouped ? groups.map(g => `<tr><td class="g">${esc(groupTitle(g))}</td><td>${esc(productsOf(g))}</td><td class="num">${g.items.length}</td><td class="num">${g.labels}</td><td class="act"><button data-print-group="${g.n}">Print</button></td></tr>`).join('') : '';
+    $('groups').hidden = !grouped;
+
+    const tbody = $('list').querySelector('tbody');
+    tbody.innerHTML = list.map(i => `<tr><td class="gcell">${grouped ? esc(groupTitle(byKey.get(i.group || ''))) : ''}</td><td class="sku">${esc(i.sku)}</td><td>${esc(printedName(i.name))}</td><td class="num">${i.qty}</td></tr>`).join('');
+    $('list').querySelectorAll('.gcol, .gcell').forEach(el => el.style.display = grouped ? '' : 'none');
+    $('list').hidden = !list.length;
+    $('empty').hidden = !!list.length;
+    $('preview-head').hidden = !list.length;
+
+    // Preview shows exactly what will print for the selected scope.
+    const maxBar = lw - 6;
+    const barH = Math.max(6, Math.min(12, lh * 0.38));
+    let html = '';
+    const emit = (i) => {
+      const svg = barcodeSVG(i.sku, maxBar, barH);
+      if (!svg) return '';
+      return `<div class="label"><div class="name">${esc(printedName(i.name))}</div>${svg}<div class="code">${esc(i.sku)}</div></div>`.repeat(i.qty);
+    };
+    if (grouped) {
+      for (const g of groups) {
+        if (sel !== 'all' && String(g.n) !== sel) continue;
+        html += `<div class="label divider"><div class="g">${esc(groupTitle(g).toUpperCase())}</div><div class="gcount">${g.labels} label${g.labels === 1 ? '' : 's'}, ${g.items.length} SKU${g.items.length === 1 ? '' : 's'}</div></div>`;
+        for (const i of g.items) html += emit(i);
+      }
+    } else {
+      for (const i of list) html += emit(i);
+    }
+    $('sheet').innerHTML = html;
+    const dividers = grouped ? (sel === 'all' ? groups.length : 1) : 0;
+    $('preview-note').textContent = total
+      ? `${printTotal} label${printTotal === 1 ? '' : 's'}${dividers ? ` plus ${dividers} group divider${dividers === 1 ? '' : 's'}` : ''} at ${lw} × ${lh} mm. What you see is what prints.`
+      : '';
+  }
+
+  // "1" -> "Group 1"; "Box A" -> "Box A"; blank -> "No group"
+  function groupTitle(g) {
+    if (!g) return '';
+    if (g.key === '') return 'No group';
+    return /^\d+$/.test(g.key) ? 'Group ' + g.key : g.key;
+  }
+  // Distinct product names in a group, sizes removed, for the groups table.
+  function productsOf(g) {
+    const names = [...new Set(g.items.map(i => printedName(i.name).replace(/\s+(xxs|xs|s|m|l|xl|xxl|xxxl|\d{1,3})$/i, '').trim()).filter(Boolean))];
+    return names.slice(0, 3).join(', ') + (names.length > 3 ? ` +${names.length - 3} more` : '');
+  }
+
+  function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+
+  function loadText(text, source) {
+    const notes = [];
+    const parsed = rowsToItems(parseDelimited(text), notes);
+    if (!parsed.length) { notes.length = 0; notes.push({ t: 'warn', m: `No rows found in ${source}. Expected columns: SKU, name, qty.` }); render(notes); return; }
+    items = mergeItems(parsed, notes);
+    notes.unshift({ t: 'ok', m: `Loaded ${parsed.length} row${parsed.length === 1 ? '' : 's'} from ${source}.` });
+    render(notes);
+  }
+
+  // ---------- Wiring ----------
+  $('file').addEventListener('change', (e) => {
+    const f = e.target.files[0]; if (!f) return;
+    const reader = new FileReader();
+    reader.onload = () => loadText(String(reader.result), f.name);
+    reader.readAsText(f, 'windows-1252');
+  });
+  $('usepaste').addEventListener('click', () => loadText($('paste').value, 'pasted rows'));
+  $('addone').addEventListener('click', () => {
+    const sku = $('one-sku').value.trim(), name = $('one-name').value.trim(), qty = Math.max(1, parseInt($('one-qty').value, 10) || 1);
+    const notes = [];
+    if (!sku) { notes.push({ t: 'warn', m: 'Enter a SKU first.' }); render(notes); return; }
+    items = mergeItems([...items, { sku, name, qty }], notes);
+    notes.unshift({ t: 'ok', m: `Added ${sku} × ${qty}.` });
+    $('one-sku').value = ''; $('one-name').value = ''; $('one-qty').value = 1;
+    render(notes);
+  });
+  $('sample').addEventListener('click', () => {
+    items = mergeItems([...items, { sku: 'WJMDKH', name: 'Jawda black-ctw-amal-pleated-abaya 54', qty: 1 }], []);
+    render([{ t: 'ok', m: 'Added test label WJMDKH. Print one and scan it: the scanner should return WJMDKH.' }]);
+  });
+  $('clear').addEventListener('click', () => { items = []; $('file').value = ''; render([]); });
+  $('print').addEventListener('click', () => window.print());
+  $('template').addEventListener('click', () => {
+    const csv = 'SKU,Print Name,Qty,Group\r\nWJMDKH,Jawda black-ctw-amal-pleated-abaya 54,20,1\r\nWMC0TO,Jawda black-ctw-amal-pleated-abaya 50,10,1\r\nUP9OIX,Jawda black-lce-pleated-trousers XS,10,2\r\n';
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+    a.download = 'label_template.csv'; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  });
+  for (const id of ['strip', 'sortname', 'lw', 'lh', 'scope']) $(id).addEventListener('change', () => render([]));
+  $('groups').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-print-group]'); if (!b) return;
+    $('scope').value = b.dataset.printGroup;
+    render([]);
+    window.print();
+  });
+
+  render([]);
+})();
+</script>
+</body>
+</html>
