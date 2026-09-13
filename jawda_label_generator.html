@@ -119,7 +119,7 @@
 <body>
 <header>
   <h1>Jawda label printer</h1>
-  <p>Load a list of SKU, name and quantity. Get one Code 128 label per garment. <span id="ver" style="opacity:.6">v1.8 · 8 Sep 2026</span></p>
+  <p>Load a list of SKU, name and quantity. Get one Code 128 label per garment. <span id="ver" style="opacity:.6">v1.9 · 13 Sep 2026</span></p>
 </header>
 
 <main>
@@ -507,7 +507,8 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     for (const ch of text) { const c = ch.charCodeAt(0); if (c < 32 || c > 126) return null; vals.push(c - 32); }
     let sum = 104; for (let i = 1; i < vals.length; i++) sum += vals[i] * i;
     vals.push(sum % 103, 106);
-    return vals.map(v => String.fromCharCode(v < 95 ? v + 32 : v - 95 + 195)).join('');
+    // Value 0 must not be a real space (the font leaves U+0020 blank); it lives on U+00C2.
+    return vals.map(v => String.fromCharCode(v === 0 ? 194 : v < 95 ? v + 32 : v - 95 + 195)).join('');
   }
   // Keep the size with the last word so a wrapped name never ends with the size alone.
   const nbspName = (n) => String(n).replace(/(\S+)\s+(\S+)$/, '$1\u00A0$2');
