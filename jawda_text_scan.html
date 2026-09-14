@@ -68,7 +68,7 @@
 </style>
 </head>
 <body>
-<header><h1>Jawda text scan</h1><span class="ver" id="ver">v1.1 · 14 Sep 2026</span></header>
+<header><h1>Jawda text scan</h1><span class="ver" id="ver">v1.2 · 14 Sep 2026</span></header>
 <nav>
   <button id="tab-scan" class="on">Scan</button>
   <button id="tab-list">List <span id="tab-count"></span></button>
@@ -125,6 +125,7 @@
         <button id="download" disabled>Download Excel</button>
         <button id="csv" disabled>Download CSV</button>
       </div>
+      <div class="status" id="exportstatus"></div>
       <p class="hint">Share opens the phone's share sheet: choose Gmail, WhatsApp, Google Drive or OneDrive to get the file to the laptop. Then open it in Excel and print as usual (font "Jawda Barcode 128" installed, row height 82, column width 27, 45 x 26 mm paper).</p>
     </div>
     <div class="card">
@@ -6180,7 +6181,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   // ---------- Tabs ----------
   function show(v) {
     for (const t of ['scan', 'list', 'export']) { $('view-' + t).classList.toggle('on', v === t); $('tab-' + t).classList.toggle('on', v === t); }
-    if (v === 'export') renderSummary();
+    if (v === 'export') { renderSummary(); prebuild(); }
   }
   $('tab-scan').onclick = () => show('scan'); $('tab-list').onclick = () => show('list'); $('tab-export').onclick = () => show('export');
 
@@ -6270,7 +6271,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     lastSku = sku; tone(true); if (navigator.vibrate) navigator.vibrate(70);
     const n = scans.filter(s => s.sku === sku).length;
     showResult('ok', sku, printedName(name), `${via}. ${n === 1 ? 'First of this SKU.' : n + ' of this SKU so far.'} ${scans.length} scanned in total.`);
-    save(); renderList();
+    save(); renderList(); prebuild();
   }
   function showResult(kind, sku, name, sub) {
     const r = $('result'); r.className = 'result ' + kind;
@@ -6373,8 +6374,8 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     $('empty').hidden = !!scans.length;
     $('items').innerHTML = scans.map((s, i) => `<li class="${i === scans.length - 1 ? 'latest' : ''}"><span class="n">${i + 1}</span><span class="txt"><div class="sku">${esc(s.sku)}</div><div class="nm">${esc(printedName(s.name))}</div></span><button class="x" data-i="${i}" aria-label="Remove">×</button></li>`).reverse().join('');
   }
-  $('items').addEventListener('click', (e) => { const b = e.target.closest('button.x'); if (!b) return; scans.splice(+b.dataset.i, 1); save(); renderList(); });
-  $('undo').addEventListener('click', () => { scans.pop(); save(); renderList(); });
+  $('items').addEventListener('click', (e) => { const b = e.target.closest('button.x'); if (!b) return; scans.splice(+b.dataset.i, 1); save(); renderList(); prebuild(); });
+  $('undo').addEventListener('click', () => { scans.pop(); save(); renderList(); prebuild(); });
   $('clear').addEventListener('click', () => { if (scans.length && !confirm(`Clear all ${scans.length} scans? Export first if you need them.`)) return; scans = []; lastSku = null; save(); renderList(); renderSummary(); });
 
   function tally() { const m = new Map(); for (const s of scans) { if (!m.has(s.sku)) m.set(s.sku, { sku: s.sku, name: s.name, qty: 0 }); m.get(s.sku).qty++; } return [...m.values()]; }
@@ -6423,16 +6424,29 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     return wb.xlsx.writeBuffer();
   }
   function stamp() { const d = new Date(), p = (n) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}`; }
-  async function xlsxFile() { return new File([await buildWorkbook()], `labels_scanned_${stamp()}.xlsx`, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }); }
+  // The share sheet must open directly from the tap, so the workbook is built ahead of time
+  // (after each change and when the Export tab opens) and the tap only hands it over.
+  let prebuilt = null, prebuildKey = '';
+  async function prebuild() {
+    const key = scans.map(s => s.sku).join(',');
+    if (key === prebuildKey && prebuilt) return prebuilt;
+    prebuildKey = key; prebuilt = null;
+    if (!scans.length) return null;
+    const f = new File([await buildWorkbook()], `labels_scanned_${stamp()}.xlsx`, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    if (key === prebuildKey) prebuilt = f;
+    return f;
+  }
   function saveFile(f) { const a = document.createElement('a'); a.href = URL.createObjectURL(f); a.download = f.name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 4000); }
-  $('download').addEventListener('click', async () => { $('download').disabled = true; try { saveFile(await xlsxFile()); } finally { $('download').disabled = false; } });
-  $('share').addEventListener('click', async () => {
-    $('share').disabled = true;
-    try {
-      const f = await xlsxFile();
-      if (navigator.share && navigator.canShare && navigator.canShare({ files: [f] })) { try { await navigator.share({ files: [f], title: 'Jawda labels', text: `Labels scanned ${stamp()}` }); } catch (e) { /* cancelled */ } }
-      else saveFile(f);
-    } finally { $('share').disabled = false; }
+  function exportStatus(msg, warn) { const el = $('exportstatus'); el.textContent = msg; el.classList.toggle('warn', !!warn); }
+  $('download').addEventListener('click', async () => { const f = prebuilt || await prebuild(); if (f) { saveFile(f); exportStatus(`Downloaded ${f.name}. Look in the phone's Downloads or Files app.`); } });
+  $('share').addEventListener('click', () => {
+    const f = prebuilt;
+    if (!f) { exportStatus('Preparing the file, tap Share again in a moment.', true); prebuild(); return; }
+    if (!navigator.share) { saveFile(f); exportStatus('This browser cannot share files; downloaded instead. Use Chrome on Android for the share sheet.', true); return; }
+    if (navigator.canShare && !navigator.canShare({ files: [f] })) { saveFile(f); exportStatus('This browser will not share Excel files; downloaded instead. Attach it from the Files app.', true); return; }
+    navigator.share({ files: [f], title: 'Jawda labels', text: `Labels scanned ${stamp()}` })
+      .then(() => exportStatus(`Shared ${f.name}.`))
+      .catch((e) => { if (e && e.name === 'AbortError') exportStatus('Share cancelled.'); else { saveFile(f); exportStatus('Share was refused (' + (e && e.message || e) + '); downloaded instead.', true); } });
   });
   $('csv').addEventListener('click', () => {
     const cell = (v) => /[",\r\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
@@ -6445,7 +6459,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   function tone(ok) { try { ctx = ctx || new (window.AudioContext || window.webkitAudioContext)(); const o = ctx.createOscillator(), g = ctx.createGain(); o.frequency.value = ok ? 1400 : 300; o.type = 'square'; g.gain.value = 0.08; o.connect(g); g.connect(ctx.destination); o.start(); o.stop(ctx.currentTime + (ok ? 0.08 : 0.25)); } catch (e) {} }
   function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 
-  loadList(); renderList(); renderSummary();
+  loadList(); renderList(); renderSummary(); prebuild();
 })();
 </script>
 </body>
