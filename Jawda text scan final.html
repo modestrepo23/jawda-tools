@@ -35,8 +35,10 @@
   /* Camera with a guide box */
   .cam { position: relative; background: #000; border-radius: 6px; overflow: hidden; display: none; }
   .cam video { width: 100%; display: block; }
-  .cam .guide { position: absolute; left: 12%; right: 12%; top: 42%; bottom: 42%; border: 2px solid rgba(255,255,255,.85); border-radius: 6px; box-shadow: 0 0 0 999px rgba(0,0,0,.35); pointer-events: none; }
-  .cam.side .guide { left: 42%; right: 42%; top: 10%; bottom: 10%; }
+  .cam .guide { position: absolute; left: 8%; right: 8%; top: 34%; bottom: 34%; border: 2px solid rgba(255,255,255,.85); border-radius: 6px; box-shadow: 0 0 0 999px rgba(0,0,0,.35); pointer-events: none; }
+  .cam.side .guide { left: 30%; right: 30%; top: 6%; bottom: 6%; }
+  .cam .guide2 { position: absolute; left: 30%; right: 30%; top: 6%; bottom: 6%; border: 1px dashed rgba(255,255,255,.45); border-radius: 6px; pointer-events: none; display: none; }
+  .cam.auto .guide2 { display: block; }
   .cam .guide::after { content: "Fit the SKU line inside the box"; position: absolute; left: 0; right: 0; bottom: -26px; text-align: center; color: #fff; font-size: 13px; text-shadow: 0 1px 2px #000; }
   .cam.busy .guide { border-color: rgba(255,210,120,.9); }
   .cam.hit .guide { border-color: #6fd18a; }
@@ -73,7 +75,7 @@
 </style>
 </head>
 <body>
-<header><h1>Jawda text scan</h1><span class="ver" id="ver">v1.3 · 15 Sep 2026</span></header>
+<header><h1>Jawda text scan</h1><span class="ver" id="ver">v1.9 · 15 Sep 2026</span></header>
 <nav>
   <button id="tab-scan" class="on">Scan</button>
   <button id="tab-list">List <span id="tab-count"></span></button>
@@ -98,19 +100,22 @@
     </div>
     <div class="card">
       <div class="status" id="liststate">Loading SKU list…</div>
-      <div class="cam" id="cam"><video id="video" playsinline muted></video><div class="guide"></div></div>
+      <div class="cam" id="cam"><video id="video" playsinline muted></video><div class="guide2"></div><div class="guide"></div></div>
       <div class="result" id="result"></div>
       <div class="status" id="camstatus"></div>
       <div class="actions">
         <button class="primary big" id="camera">Start camera</button>
-        <button id="orient" title="Switch between an upright and a sideways label">Label: upright</button>
+        <button id="orient" title="Label orientation">Label: auto</button>
       </div>
-      <p class="hint">Put only the six-character code inside the box, close enough that it fills most of the box. Each read is checked against the SKU list and the product name is shown. For a label printed sideways, tap "Label: upright" to switch to sideways and use the tall box.</p>
+      <p class="hint">Get the SKU inside the box, reasonably close and without glare. Each read is checked against the SKU list and the product name is shown. "Label: auto" tries upright and sideways in turn; if all your labels face the same way, tap it to pin one orientation and reads get faster.</p>
     </div>
 
     <div class="card">
       <label class="lbl" for="manual">Or type a SKU (also works with a Bluetooth scanner)</label>
-      <input type="text" id="manual" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="XBN9DH" maxlength="12">
+      <div style="display:flex; gap:8px">
+        <input type="text" id="manual" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="XBN9DH" maxlength="12" style="flex:1">
+        <button class="primary" id="addmanual" style="flex:none">Add</button>
+      </div>
       <div class="status" id="manualstatus"></div>
     </div>
 
@@ -6275,36 +6280,53 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     r.readAsText(f);
   });
 
-  // ---------- Matching: exact, then OCR-confusable variants, only against the list ----------
-  const CONF = { '0': '0ODQ', 'O': 'O0DQ', 'D': 'D0O', 'Q': 'QO0', '1': '1IL', 'I': 'I1L', 'L': 'L1I', '5': '5S', 'S': 'S5', '8': '8B', 'B': 'B8', '2': '2Z', 'Z': 'Z2', '6': '6G', 'G': 'G6', '7': '7T', 'T': 'T7', 'U': 'UV', 'V': 'VU', '4': '4A', 'A': 'A4' };
-  function resolve(token) {
+  // ---------- Matching, scored ----------
+  // Every candidate is resolved against the SKU list. Cost: 0 = read exactly as listed;
+  // +1 per likely OCR confusion (0/O, 1/I, 5/S, 8/B, 2/Z ...); +2 for a missing or extra
+  // character; +1 if the code had to be assembled from fragments. Cost 0 counts on one frame,
+  // cost 1-2 must be seen on two frames, higher is ignored: a wrong label is worse than a slow read.
+  const CONF = { '0': '0OD', 'O': 'O0D', 'D': 'D0O', 'Q': 'QO0', '9': '9O', '1': '1IL', 'I': 'I1L', 'L': 'L1I', '5': '5S', 'S': 'S5', '8': '8B', 'B': 'B8', '2': '2Z', 'Z': 'Z27', '7': '7Z', '6': '6G', 'G': 'G6', 'U': 'UV', 'V': 'VUY', 'Y': 'YV', '4': '4A', 'A': 'A4' };
+  const MAX_COST = 2;
+  function resolve(token) {           // -> {sku, cost} or null
     token = token.toUpperCase();
-    if (master.has(token)) return token;
+    if (master.has(token)) return { sku: token, cost: 0 };
     if (token.length !== 6) return null;
     const sets = [...token].map(ch => CONF[ch] || ch);
-    let combos = 1; for (const s of sets) combos *= s.length; if (combos > 5000) return null;
-    const rec = (i, acc) => {
-      if (i === 6) return master.has(acc) ? acc : null;
-      for (const ch of sets[i]) { const r = rec(i + 1, acc + ch); if (r) return r; }
-      return null;
+    let best = null;
+    const rec = (i, acc, cost) => {
+      if (cost > MAX_COST || (best && cost >= best.cost)) return;
+      if (i === 6) { if (master.has(acc)) best = { sku: acc, cost }; return; }
+      for (const ch of sets[i]) rec(i + 1, acc + ch, cost + (ch === token[i] ? 0 : 1));
     };
-    return rec(0, '');
+    rec(0, '', 0);
+    return best;
   }
-  // From OCR text: whole 6-char tokens first (with confusables), then one-character
-  // slips (an extra or missing character), then 6/7-char windows inside longer tokens.
   const ALNUM = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-  function resolveLoose(t) {
-    if (t.length === 6) return resolve(t);
-    if (t.length === 7) { for (let i = 0; i < 7; i++) { const r = resolve(t.slice(0, i) + t.slice(i + 1)); if (r) return r; } return null; }
-    if (t.length === 5) { for (let i = 0; i <= 5; i++) for (const ch of ALNUM) { const r = resolve(t.slice(0, i) + ch + t.slice(i)); if (r) return r; } return null; }
-    return null;
+  function resolveLoose(t, extra) {   // extra = cost already incurred (fragment assembly)
+    extra = extra || 0;
+    let best = null;
+    const keep = (r, add) => { if (r && r.cost + add <= MAX_COST && (!best || r.cost + add < best.cost)) best = { sku: r.sku, cost: r.cost + add }; };
+    if (t.length === 6) keep(resolve(t), extra);
+    else if (t.length === 7) { for (let i = 0; i < 7; i++) keep(resolve(t.slice(0, i) + t.slice(i + 1)), extra + 2); }
+    else if (t.length === 5) { for (let i = 0; i <= 5; i++) for (const ch of ALNUM) keep(resolve(t.slice(0, i) + ch + t.slice(i)), extra + 2); }
+    return best;
   }
-  function findSku(text) {
-    const tokens = text.toUpperCase().replace(/[^A-Z0-9\s]/g, ' ').split(/\s+/).filter(Boolean);
-    for (const t of tokens) if (t.length === 6) { const r = resolve(t); if (r) return r; }
-    for (const t of tokens) if (t.length === 7 || t.length === 5) { const r = resolveLoose(t); if (r) return r; }
-    for (const t of tokens) if (t.length >= 8 && t.length <= 12) for (const L of [6, 7]) for (let i = 0; i + L <= t.length; i++) { const r = resolveLoose(t.slice(i, i + L)); if (r) return r; }
-    return null;
+  function findSku(text) {            // -> {sku, cost} or null (lowest cost wins)
+    const up = text.toUpperCase();
+    let best = null;
+    const keep = (r) => { if (r && (!best || r.cost < best.cost)) best = r; };
+    const tokens = up.replace(/[^A-Z0-9\s]/g, ' ').split(/\s+/).filter(Boolean);
+    for (const t of tokens) {
+      if (t.length >= 5 && t.length <= 7) keep(resolveLoose(t, 0));
+      else if (t.length >= 8 && t.length <= 12) for (const L of [6, 7]) for (let i = 0; i + L <= t.length; i++) keep(resolveLoose(t.slice(i, i + L), 1));
+      if (best && best.cost === 0) return best;
+    }
+    for (const line of up.split(/\n/)) {
+      const j = line.replace(/[^A-Z0-9]/g, '');
+      if (j.length < 5 || j.length > 40 || tokens.includes(j)) continue;
+      for (const L of [6, 7, 5]) for (let i = 0; i + L <= j.length; i++) keep(resolveLoose(j.slice(i, i + L), 1));
+    }
+    return best;
   }
 
   // ---------- Recording ----------
@@ -6324,25 +6346,33 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 
   // ---------- Manual / keyboard scanner ----------
   const manual = $('manual');
-  manual.addEventListener('keydown', (e) => {
-    if (e.key !== 'Enter' && e.key !== 'Tab') return; e.preventDefault();
-    const v = manual.value.trim().toUpperCase(); manual.value = ''; if (!v) return;
-    const r = resolve(v);
-    if (r) { take(r, r === v ? 'Typed' : `Typed ${v}, matched`); $('manualstatus').textContent = ''; }
+  function addManual() {
+    const v = manual.value.trim().toUpperCase(); manual.value = ''; if (!v) { manual.focus(); return; }
+    const r = v.length === 6 ? resolve(v) : resolveLoose(v, 0);
+    if (r) { take(r.sku, r.sku === v ? 'Typed' : `Typed ${v}, matched`); $('manualstatus').textContent = ''; }
     else { tone(false); $('manualstatus').textContent = `${v} is not in the SKU list. Not added.`; showResult('warn', v, 'Not in the SKU list', 'Check the label and try again.'); }
-  });
+    manual.focus();
+  }
+  manual.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); addManual(); } });
+  $('addmanual').addEventListener('click', addManual);
 
   // ---------- Camera + OCR ----------
   let stream = null, worker = null, running = false, armed = true, missCount = 0, lastMatchAt = 0;
+  let pending = null;   // {sku, at} a near read waiting for a second frame to agree
   // Orientation is chosen by the user: 0 = upright, 90/270 = sideways (tap again to flip direction).
-  const ORIENT = [{ a: 0, l: 'Label: upright' }, { a: 90, l: 'Label: sideways ↺' }, { a: 270, l: 'Label: sideways ↻' }];
-  let orient = 0;
-  $('orient').addEventListener('click', () => { orient = (orient + 1) % ORIENT.length; $('orient').textContent = ORIENT[orient].l; $('cam').classList.toggle('side', ORIENT[orient].a !== 0); });
+  const ORIENT = [{ a: 'auto', l: 'Label: auto' }, { a: 0, l: 'Label: upright' }, { a: 90, l: 'Label: sideways ↺' }, { a: 270, l: 'Label: sideways ↻' }];
+  // Passes: upright as a block of text, upright as scattered words (thin strip labels),
+  // sideways both ways, then slight tilts. Each pass is (angle, page-segmentation mode).
+  const PASSES = [{ a: 0, psm: 6 }, { a: 0, psm: 11 }, { a: 90, psm: 6 }, { a: 270, psm: 6 }];
+  let orient = 0, passIdx = 0, lockedPass = null, curPsm = '6';
+  function applyOrient() { const a = ORIENT[orient].a; $('orient').textContent = ORIENT[orient].l; $('cam').classList.toggle('side', a === 90 || a === 270); $('cam').classList.toggle('auto', a === 'auto'); lockedPass = null; }
+  $('orient').addEventListener('click', () => { orient = (orient + 1) % ORIENT.length; applyOrient(); });
+  applyOrient();
   async function getWorker() {
     if (worker) return worker;
     $('camstatus').textContent = 'Loading text reader (first time only, a few seconds)…';
     worker = await Tesseract.createWorker('eng', 1, { logger: () => {} });
-    await worker.setParameters({ tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', tessedit_pageseg_mode: '7', preserve_interword_spaces: '1' });
+    await worker.setParameters({ tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', tessedit_pageseg_mode: '6', preserve_interword_spaces: '1', tessedit_do_invert: '0' });
     return worker;
   }
   function stopCamera() {
@@ -6365,56 +6395,63 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     } catch (e) { stopCamera(); $('camstatus').textContent = 'Camera not available: ' + e.message + (location.protocol === 'file:' ? ' (open the https address, not the file)' : ''); }
   });
 
-  // Crop the guide box from the current frame, upscale so the characters are ~50px tall,
-  // rotate if the label is sideways, and binarise. The box holds only the SKU, so OCR runs
-  // as a single line and is fast.
+  // Crop the guide box (horizontal box for upright, vertical strip for sideways), upscale,
+  // rotate as needed, boost contrast. Grey levels are kept: hard thresholding loses thin
+  // strokes under the glossy polybag.
   const work = document.createElement('canvas'); work.getContext('2d', { willReadFrequently: true });
   function grabFrame(angle) {
     const v = $('video'); if (!v.videoWidth) return null;
-    const horiz = angle === 0;
-    const sx = v.videoWidth * (horiz ? 0.12 : 0.42), sw = v.videoWidth * (horiz ? 0.76 : 0.16);
-    const sy = v.videoHeight * (horiz ? 0.42 : 0.10), sh = v.videoHeight * (horiz ? 0.16 : 0.80);
-    const scale = Math.max(1, 1000 / Math.max(sw, sh));
+    const horiz = Math.abs(angle) < 45;
+    const sx = v.videoWidth * (horiz ? 0.08 : 0.30), sw = v.videoWidth * (horiz ? 0.84 : 0.40);
+    const sy = v.videoHeight * (horiz ? 0.34 : 0.06), sh = v.videoHeight * (horiz ? 0.32 : 0.88);
+    const scale = Math.max(1, 900 / Math.max(sw, sh));
     const w = Math.round(sw * scale), h = Math.round(sh * scale);
     const g = work.getContext('2d');
-    if (horiz) { work.width = w; work.height = h; g.drawImage(v, sx, sy, sw, sh, 0, 0, w, h); }
+    if (horiz) { work.width = w; work.height = h; g.fillStyle = '#808080'; g.fillRect(0, 0, w, h); g.save(); g.translate(w / 2, h / 2); g.rotate(angle * Math.PI / 180); g.drawImage(v, sx, sy, sw, sh, -w / 2, -h / 2, w, h); g.restore(); }
     else { work.width = h; work.height = w; g.save(); g.translate(h / 2, w / 2); g.rotate(angle * Math.PI / 180); g.drawImage(v, sx, sy, sw, sh, -w / 2, -h / 2, w, h); g.restore(); }
-    // Otsu threshold to clean black-on-white print
-    const img = g.getImageData(0, 0, work.width, work.height), d = img.data, hist = new Uint32Array(256);
-    const gray = new Uint8Array(d.length / 4);
-    for (let i = 0, j = 0; i < d.length; i += 4, j++) { const y = (0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]) | 0; gray[j] = y; hist[y]++; }
-    const total = gray.length; let sum = 0; for (let t = 0; t < 256; t++) sum += t * hist[t];
-    let sumB = 0, wB = 0, best = 0, thr = 128;
-    for (let t = 0; t < 256; t++) { wB += hist[t]; if (!wB) continue; const wF = total - wB; if (!wF) break; sumB += t * hist[t]; const mB = sumB / wB, mF = (sum - sumB) / wF, v2 = wB * wF * (mB - mF) * (mB - mF); if (v2 > best) { best = v2; thr = t; } }
-    for (let i = 0, j = 0; i < d.length; i += 4, j++) { const c = gray[j] > thr ? 255 : 0; d[i] = d[i + 1] = d[i + 2] = c; }
+    const img = g.getImageData(0, 0, work.width, work.height), d = img.data;
+    for (let i = 0; i < d.length; i += 4) { const y = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]; const c = Math.max(0, Math.min(255, (y - 128) * 1.6 + 128)); d[i] = d[i + 1] = d[i + 2] = c; }
     g.putImageData(img, 0, 0);
     return work;
   }
 
-  // After a hit the reader is disarmed until the SKU is out of view (two misses and 1.2s),
-  // so hovering never double counts; a different SKU coming into view re-arms at once.
+  // In auto mode the passes cycle upright / sideways / sideways. After a hit the reader is
+  // disarmed and stays on the angle that matched until that SKU is out of view (two misses
+  // and 1.2s), so hovering never double counts; a different SKU in view re-arms at once.
   async function loop() {
     while (running && stream) {
-      const angle = ORIENT[orient].a;
-      const frame = grabFrame(angle);
+      const mode = ORIENT[orient].a;
+      let pass;
+      if (mode !== 'auto') pass = lockedPass || { a: mode, psm: (passIdx++ % 2) ? 11 : 6 };
+      else pass = lockedPass || PASSES[passIdx++ % PASSES.length];
+      const frame = grabFrame(pass.a);
       if (frame) {
         $('cam').classList.add('busy');
         let text = '';
-        try { const { data } = await worker.recognize(frame); text = data.text || ''; } catch (e) { /* skip frame */ }
+        try {
+          if (String(pass.psm) !== curPsm) { curPsm = String(pass.psm); await worker.setParameters({ tessedit_pageseg_mode: curPsm }); }
+          const { data } = await worker.recognize(frame); text = data.text || '';
+        } catch (e) { /* skip frame */ }
         $('cam').classList.remove('busy');
-        window.__ocr = { angle, text };
-        const sku = findSku(text);
+        window.__ocr = { angle: pass.a, psm: pass.psm, text };
+        const m = findSku(text);
         const now = Date.now();
+        let sku = null;
+        if (m) {
+          if (m.cost === 0) sku = m.sku;
+          else if (pending && pending.sku === m.sku && now - pending.at < 6000) { sku = m.sku; pending = null; }
+          else { pending = { sku: m.sku, at: now }; $('camstatus').textContent = `Possible ${m.sku}, checking…`; }
+        }
         if (sku) {
           lastMatchAt = now; missCount = 0;
-          if (armed) { armed = false; take(sku, 'Read by camera'); $('cam').classList.add('hit'); $('camstatus').textContent = 'Counted. Move to the next garment.'; }
-          else if (sku !== lastSku) { armed = true; }
+          if (armed) { armed = false; lockedPass = pass; take(sku, 'Read by camera'); $('cam').classList.add('hit'); $('camstatus').textContent = 'Counted. Move to the next garment.'; }
+          else if (sku !== lastSku) { armed = true; lockedPass = null; }
         } else {
           missCount++;
-          if (!armed && missCount >= 2 && now - lastMatchAt > 1200) { armed = true; $('cam').classList.remove('hit'); $('camstatus').textContent = 'Ready. Point at the next SKU.'; }
+          if (!armed && missCount >= 2 && now - lastMatchAt > 1200) { armed = true; lockedPass = null; $('cam').classList.remove('hit'); $('camstatus').textContent = 'Ready. Point at the next SKU.'; }
         }
       }
-      await new Promise(r => setTimeout(r, 60));
+      await new Promise(r => setTimeout(r, 40));
     }
   }
 
