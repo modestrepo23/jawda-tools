@@ -75,7 +75,7 @@
 </style>
 </head>
 <body>
-<header><h1>Jawda text scan</h1><span class="ver" id="ver">v2.0 · 16 Sep 2026</span></header>
+<header><h1>Jawda text scan</h1><span class="ver" id="ver">v2.1 · 16 Sep 2026</span></header>
 <nav>
   <button id="tab-scan" class="on">Scan</button>
   <button id="tab-list">List <span id="tab-count"></span></button>
@@ -6309,7 +6309,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     let best = null;
     const keep = (r, add) => { if (r && r.cost + add <= MAX_COST && (!best || r.cost + add < best.cost)) best = { sku: r.sku, cost: r.cost + add }; };
     if (t.length === 6) keep(resolve(t), extra);
-    else if (t.length === 7) { for (let i = 0; i < 7; i++) keep(resolve(t.slice(0, i) + t.slice(i + 1)), extra + 2); }
+    else if (t.length === 7) { for (let i = 0; i < 7; i++) keep(resolve(t.slice(0, i) + t.slice(i + 1)), extra + ((i === 0 || i === 6) ? 1 : 2)); }   // a glued neighbour at either end is common ("UK0AD9J" from "UK0AD9 / Jawda")
     else if (t.length === 5) { for (let i = 0; i <= 5; i++) for (const ch of ALNUM) keep(resolve(t.slice(0, i) + ch + t.slice(i)), extra + 2); }
     return best;
   }
@@ -6367,7 +6367,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   const ORIENT = [{ a: 'auto', l: 'Label: auto' }, { a: 0, l: 'Label: upright' }, { a: 90, l: 'Label: sideways ↺' }, { a: 270, l: 'Label: sideways ↻' }];
   // Passes: upright as a block of text, upright as scattered words (thin strip labels),
   // sideways both ways, then slight tilts. Each pass is (angle, page-segmentation mode).
-  const PASSES = [{ a: 0, psm: 6 }, { a: 0, psm: 11 }, { a: 90, psm: 6 }, { a: 270, psm: 6 }];
+  const PASSES = [{ a: 0, psm: 6 }, { a: 270, psm: 6 }, { a: 90, psm: 6 }, { a: 0, psm: 11 }];
   let orient = 0, passIdx = 0, lockedPass = null, curPsm = '6';
   function applyOrient() { const a = ORIENT[orient].a; $('orient').textContent = ORIENT[orient].l; $('cam').classList.toggle('side', a === 90 || a === 270); $('cam').classList.toggle('auto', a === 'auto'); lockedPass = null; }
   $('orient').addEventListener('click', () => { orient = (orient + 1) % ORIENT.length; applyOrient(); });
