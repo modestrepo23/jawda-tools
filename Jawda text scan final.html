@@ -75,7 +75,7 @@
 </style>
 </head>
 <body>
-<header><h1>Jawda text scan</h1><span class="ver" id="ver">v1.9 · 15 Sep 2026</span></header>
+<header><h1>Jawda text scan</h1><span class="ver" id="ver">v2.0 · 16 Sep 2026</span></header>
 <nav>
   <button id="tab-scan" class="on">Scan</button>
   <button id="tab-list">List <span id="tab-count"></span></button>
@@ -113,9 +113,11 @@
     <div class="card">
       <label class="lbl" for="manual">Or type a SKU (also works with a Bluetooth scanner)</label>
       <div style="display:flex; gap:8px">
-        <input type="text" id="manual" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="XBN9DH" maxlength="12" style="flex:1">
+        <input type="text" id="manual" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="XBN9DH" maxlength="12" style="flex:1; min-width:0">
+        <input type="number" id="manualqty" value="1" min="1" max="500" inputmode="numeric" aria-label="Quantity" style="flex:none; width:84px; padding:11px 8px; border:1px solid var(--line); border-radius:4px; font-size:20px; text-align:center">
         <button class="primary" id="addmanual" style="flex:none">Add</button>
       </div>
+      <p class="hint">The number is how many labels of this SKU to add (they all go into the current group).</p>
       <div class="status" id="manualstatus"></div>
     </div>
 
@@ -6330,12 +6332,13 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   }
 
   // ---------- Recording ----------
-  function take(sku, via) {
+  function take(sku, via, qty) {
+    qty = Math.max(1, Math.min(500, parseInt(qty, 10) || 1));
     const name = master.get(sku) || '';
-    scans.push({ sku, name, at: new Date().toISOString(), group: current });
+    for (let k = 0; k < qty; k++) scans.push({ sku, name, at: new Date().toISOString(), group: current });
     lastSku = sku; tone(true); if (navigator.vibrate) navigator.vibrate(70);
     const n = scans.filter(s => s.sku === sku).length;
-    showResult('ok', sku, printedName(name), `${via}. ${n === 1 ? 'First of this SKU.' : n + ' of this SKU so far.'} ${scans.length} scanned in total${current ? ', group ' + current : ''}.`);
+    showResult('ok', sku, printedName(name), `${via}${qty > 1 ? ' ×' + qty : ''}. ${n === 1 ? 'First of this SKU.' : n + ' of this SKU so far.'} ${scans.length} in total${current ? ', group ' + current : ''}.`);
     save(); renderGroup(); renderList(); prebuild();
   }
   function showResult(kind, sku, name, sub) {
@@ -6348,8 +6351,9 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   const manual = $('manual');
   function addManual() {
     const v = manual.value.trim().toUpperCase(); manual.value = ''; if (!v) { manual.focus(); return; }
+    const qty = parseInt($('manualqty').value, 10) || 1; $('manualqty').value = 1;
     const r = v.length === 6 ? resolve(v) : resolveLoose(v, 0);
-    if (r) { take(r.sku, r.sku === v ? 'Typed' : `Typed ${v}, matched`); $('manualstatus').textContent = ''; }
+    if (r) { take(r.sku, r.sku === v ? 'Typed' : `Typed ${v}, matched`, qty); $('manualstatus').textContent = ''; }
     else { tone(false); $('manualstatus').textContent = `${v} is not in the SKU list. Not added.`; showResult('warn', v, 'Not in the SKU list', 'Check the label and try again.'); }
     manual.focus();
   }
