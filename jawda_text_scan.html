@@ -80,7 +80,7 @@
 </style>
 </head>
 <body>
-<header><h1>Jawda text scan</h1><span class="ver" id="ver">v3.0 · 7 Oct 2026</span></header>
+<header><h1>Jawda text scan</h1><span class="ver" id="ver">v3.2 · 7 Oct 2026</span></header>
 <nav>
   <button id="tab-scan" class="on">Scan</button>
   <button id="tab-list">List <span id="tab-count"></span></button>
@@ -160,7 +160,7 @@
         <button class="primary big" id="sharepdf" disabled>Share PDF to print</button>
       </div>
       <div class="actions">
-        <button id="downloadpdf" disabled>Save PDF to this phone</button>
+        <button id="downloadpdf" disabled>Save PDF</button>
       </div>
       <div class="status" id="pdfstatus"></div>
       <p class="hint">In the printer app, match the label size to the one chosen here and set scaling to none or 100%. Scaling is the one setting that will quietly ruin a barcode. Print one and scan it before running a batch.</p>
@@ -168,12 +168,14 @@
     <div class="card">
       <h2 class="cardh">Send to the laptop</h2>
       <p style="margin:0 0 10px">The Excel file has the labels in scan order (one row each, same layout as the label generator), a Summary tab and a Read me tab.</p>
+      <p style="margin:0 0 10px">Breakdown CSV totals each SKU: what came in, how many, and when. Scan log CSV lists every garment separately, in scan order.</p>
       <div class="actions">
         <button id="share" disabled>Share Excel file</button>
         <button id="download" disabled>Download Excel</button>
       </div>
       <div class="actions">
-        <button id="csv" disabled>Download CSV</button>
+        <button id="breakdown" disabled>Breakdown CSV</button>
+        <button id="csv" disabled>Scan log CSV</button>
       </div>
       <div class="status" id="exportstatus"></div>
       <p class="hint">Share opens the phone's share sheet: choose Gmail, WhatsApp, Google Drive or OneDrive to get the file to the laptop. Then open it in Excel and print as usual (font "Jawda Barcode 128" installed, row height 82, column width 27, 45 x 26 mm paper).</p>
@@ -6742,6 +6744,7 @@ if (typeof module !== 'undefined') module.exports = globalThis.JawdaPdf;
     $('tab-count').textContent = scans.length ? `(${scans.length})` : '';
     $('undo').disabled = !scans.length; $('share').disabled = $('download').disabled = $('csv').disabled = !scans.length;
     $('sharepdf').disabled = $('downloadpdf').disabled = !scans.length;
+    $('breakdown').disabled = !scans.length;
     $('empty').hidden = !!scans.length;
     // Newest group first, newest item first within it.
     const order = groupOrder();
@@ -6859,22 +6862,55 @@ if (typeof module !== 'undefined') module.exports = globalThis.JawdaPdf;
     if (key === prebuildKey) prebuilt = f;
     return f;
   }
-  function saveFile(f) { const a = document.createElement('a'); a.href = URL.createObjectURL(f); a.download = f.name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 4000); }
+
+  // ---------- Handing a file to the phone ----------
+  // iOS Safari ignores <a download> for a file the page generates: it
+  // navigates to the file instead of saving it. There the share sheet is the
+  // only real save ("Save to Files"), so iOS always goes through it, and the
+  // status line only ever reports what actually happened.
+  const IS_IOS = /iP(hone|od|ad)/.test(navigator.userAgent) ||
+    (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+  function canShareFile(f) { return !!navigator.share && (!navigator.canShare || navigator.canShare({ files: [f] })); }
+  function openInTab(f, say) {
+    const url = URL.createObjectURL(f);
+    if (!window.open(url, '_blank')) {
+      URL.revokeObjectURL(url);
+      say('The browser blocked a new tab. Allow pop-ups for this site, then tap again.', true);
+      return;
+    }
+    say('Opened in a new tab. Use the share button there to print it or save it to Files.');
+    setTimeout(() => URL.revokeObjectURL(url), 120000);
+  }
+  // intent: 'share' to hand it to another app, 'save' to keep it on the phone.
+  function deliver(f, say, intent) {
+    if (IS_IOS || intent === 'share') {
+      if (canShareFile(f)) {
+        navigator.share({ files: [f], title: 'Jawda labels' })
+          .then(() => say(intent === 'share'
+            ? `Shared ${f.name}. Pick your label printer's app.`
+            : `Choose "Save to Files" to keep ${f.name}, or pick your printer app.`))
+          .catch((e) => { if (e && e.name === 'AbortError') say('Cancelled.'); else openInTab(f, say); });
+        return;
+      }
+      if (IS_IOS) { openInTab(f, say); return; }
+    }
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(f); a.download = f.name; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    say(`Saved ${f.name}. Look in Downloads or the Files app.`);
+  }
+  function saveFile(f) { deliver(f, exportStatus, 'save'); }
   function exportStatus(msg, warn) { const el = $('exportstatus'); el.textContent = msg; el.classList.toggle('warn', !!warn); }
-  $('download').addEventListener('click', async () => { const f = prebuilt || await prebuild(); if (f) { saveFile(f); exportStatus(`Downloaded ${f.name}. Look in the phone's Downloads or Files app.`); } });
+  $('download').addEventListener('click', async () => { const f = prebuilt || await prebuild(); if (f) deliver(f, exportStatus, 'save'); });
   $('share').addEventListener('click', () => {
     const f = prebuilt;
-    if (!f) { exportStatus('Preparing the file, tap Share again in a moment.', true); prebuild(); return; }
-    if (!navigator.share) { saveFile(f); exportStatus('This browser cannot share files; downloaded instead. Use Chrome on Android for the share sheet.', true); return; }
-    if (navigator.canShare && !navigator.canShare({ files: [f] })) { saveFile(f); exportStatus('This browser will not share Excel files; downloaded instead. Attach it from the Files app.', true); return; }
-    navigator.share({ files: [f], title: 'Jawda labels', text: `Labels scanned ${stamp()}` })
-      .then(() => exportStatus(`Shared ${f.name}.`))
-      .catch((e) => { if (e && e.name === 'AbortError') exportStatus('Share cancelled.'); else { saveFile(f); exportStatus('Share was refused (' + (e && e.message || e) + '); downloaded instead.', true); } });
+    if (!f) { exportStatus('Still preparing the file. Tap Share again in a moment.', true); prebuild(); return; }
+    deliver(f, exportStatus, 'share');
   });
   $('csv').addEventListener('click', () => {
     const cell = (v) => /[",\r\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
     const lines = ['#,Group,SKU,Print Name,Scanned', ...scans.map((s, i) => [i + 1, s.group || '', s.sku, printedName(s.name), s.at.slice(0, 16).replace('T', ' ')].map(x => cell(String(x))).join(','))];
-    saveFile(new File(['\ufeff' + lines.join('\r\n') + '\r\n'], `scanned_${stamp()}.csv`, { type: 'text/csv;charset=utf-8' }));
+    deliver(new File(['\ufeff' + lines.join('\r\n') + '\r\n'], `scanned_${stamp()}.csv`, { type: 'text/csv;charset=utf-8' }), exportStatus, 'save');
   });
 
 
@@ -6914,20 +6950,39 @@ if (typeof module !== 'undefined') module.exports = globalThis.JawdaPdf;
   }
   $('downloadpdf').addEventListener('click', () => {
     const f = pdfFile(); if (!f) return;
-    saveFile(f);
-    pdfStatus(`Saved ${f.name}. Open it from Files or Downloads and print.`);
+    deliver(f, pdfStatus, 'save');
   });
   $('sharepdf').addEventListener('click', () => {
     const f = pdfFile(); if (!f) return;
-    if (!navigator.share || (navigator.canShare && !navigator.canShare({ files: [f] }))) {
-      saveFile(f); pdfStatus(`This browser cannot share files; saved ${f.name} instead. Open it from Files and print.`, true); return;
+    deliver(f, pdfStatus, 'share');
+  });
+
+  // One row per SKU per group: quantity, and when it was first and last seen.
+  function breakdownCSV() {
+    const cell = (v) => /[",\r\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+    const when = (iso) => String(iso || '').slice(0, 16).replace('T', ' ');
+    const grouped = groups.length > 0;
+    const head = (grouped ? ['Group'] : []).concat(['SKU', 'Print Name', 'Qty', 'First scan', 'Last scan']);
+    const rows = [];
+    for (const g of groupOrder()) {
+      const m = new Map();
+      for (const s of scans) {
+        if ((s.group || '') !== g) continue;
+        if (!m.has(s.sku)) m.set(s.sku, { sku: s.sku, name: s.name, qty: 0, first: s.at, last: s.at });
+        const e = m.get(s.sku);
+        e.qty++;
+        if (s.at < e.first) e.first = s.at;
+        if (s.at > e.last) e.last = s.at;
+      }
+      for (const e of m.values()) {
+        rows.push((grouped ? [g || 'No group'] : []).concat([e.sku, printedName(e.name), e.qty, when(e.first), when(e.last)]));
+      }
     }
-    navigator.share({ files: [f], title: 'Jawda labels' })
-      .then(() => pdfStatus(`Shared ${f.name}. Pick your label printer's app.`))
-      .catch((e) => {
-        if (e && e.name === 'AbortError') pdfStatus('Share cancelled.');
-        else { saveFile(f); pdfStatus('Share was refused; saved to the phone instead.', true); }
-      });
+    return '\ufeff' + [head, ...rows].map(r => r.map(x => cell(String(x))).join(',')).join('\r\n') + '\r\n';
+  }
+  $('breakdown').addEventListener('click', () => {
+    if (!scans.length) return;
+    deliver(new File([breakdownCSV()], `breakdown_${stamp()}.csv`, { type: 'text/csv;charset=utf-8' }), exportStatus, 'save');
   });
 
   // ---------- Beep ----------

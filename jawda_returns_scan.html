@@ -71,7 +71,7 @@
 </style>
 </head>
 <body>
-<header><h1>Jawda returns scan</h1><span class="ver" id="ver">v2.0 · 7 Oct 2026</span></header>
+<header><h1>Jawda returns scan</h1><span class="ver" id="ver">v2.1 · 7 Oct 2026</span></header>
 <nav>
   <button id="tab-scan" class="on">Scan</button>
   <button id="tab-summary">Summary <span id="tab-count"></span></button>
@@ -6505,13 +6505,47 @@ if (typeof module !== 'undefined') module.exports = globalThis.JawdaPdf;
       (unnamed ? ` ${unnamed} had no name in the SKU list and print with the barcode only.` : ''), !!unnamed);
     return new File([r.bytes], `return_labels_${stamp()}.pdf`, { type: 'application/pdf' });
   }
-  function savePdf(f) { const a = document.createElement('a'); a.href = URL.createObjectURL(f); a.download = f.name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 4000); }
-  $('downloadpdf').addEventListener('click', () => { const f = pdfFile(); if (f) savePdf(f); });
+
+  // ---------- Handing a file to the phone ----------
+  // iOS Safari ignores <a download> for a file the page generates: it
+  // navigates to the file instead of saving it. There the share sheet is the
+  // only real save ("Save to Files"), so iOS always goes through it, and the
+  // status line only ever reports what actually happened.
+  const IS_IOS = /iP(hone|od|ad)/.test(navigator.userAgent) ||
+    (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+  function canShareFile(f) { return !!navigator.share && (!navigator.canShare || navigator.canShare({ files: [f] })); }
+  function openInTab(f, say) {
+    const url = URL.createObjectURL(f);
+    if (!window.open(url, '_blank')) {
+      URL.revokeObjectURL(url);
+      say('The browser blocked a new tab. Allow pop-ups for this site, then tap again.', true);
+      return;
+    }
+    say('Opened in a new tab. Use the share button there to print it or save it to Files.');
+    setTimeout(() => URL.revokeObjectURL(url), 120000);
+  }
+  // intent: 'share' to hand it to another app, 'save' to keep it on the phone.
+  function deliver(f, say, intent) {
+    if (IS_IOS || intent === 'share') {
+      if (canShareFile(f)) {
+        navigator.share({ files: [f], title: 'Jawda labels' })
+          .then(() => say(intent === 'share'
+            ? `Shared ${f.name}. Pick your label printer's app.`
+            : `Choose "Save to Files" to keep ${f.name}, or pick your printer app.`))
+          .catch((e) => { if (e && e.name === 'AbortError') say('Cancelled.'); else openInTab(f, say); });
+        return;
+      }
+      if (IS_IOS) { openInTab(f, say); return; }
+    }
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(f); a.download = f.name; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    say(`Saved ${f.name}. Look in Downloads or the Files app.`);
+  }
+
+  $('downloadpdf').addEventListener('click', () => { const f = pdfFile(); if (f) deliver(f, pdfStatus, 'save'); });
   $('sharepdf').addEventListener('click', () => {
-    const f = pdfFile(); if (!f) return;
-    if (!navigator.share || (navigator.canShare && !navigator.canShare({ files: [f] }))) { savePdf(f); return; }
-    navigator.share({ files: [f], title: 'Jawda return labels' })
-      .catch((e) => { if (!e || e.name !== 'AbortError') savePdf(f); });
+    const f = pdfFile(); if (f) deliver(f, pdfStatus, 'share');
   });
 
   // ---------- Summary ----------
@@ -6556,9 +6590,7 @@ if (typeof module !== 'undefined') module.exports = globalThis.JawdaPdf;
     return '\ufeff' + lines.join('\r\n') + '\r\n';
   }
   function csvFile() { return new File([buildCSV()], `returns_${stamp()}.csv`, { type: 'text/csv;charset=utf-8' }); }
-  $('download').addEventListener('click', () => {
-    const f = csvFile(); const a = document.createElement('a'); a.href = URL.createObjectURL(f); a.download = f.name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-  });
+  $('download').addEventListener('click', () => { deliver(csvFile(), pdfStatus, 'save'); });
   $('share').addEventListener('click', async () => {
     const f = csvFile();
     if (navigator.share && navigator.canShare && navigator.canShare({ files: [f] })) {
