@@ -65,13 +65,19 @@
   details.order .body ul.items li .sku { font-size: 17px; }
   details.order .tools { display: flex; gap: 8px; margin-top: 10px; }
   video { width: 100%; border-radius: 4px 4px 0 0; background: #000; display: none; margin-top: 10px; }
+  .cam { position: relative; background: #000; border-radius: 4px 4px 0 0; overflow: hidden; display: none; margin-top: 10px; }
+  .cam video { display: block; margin: 0; border-radius: 0; }
+  .cam .guide { position: absolute; left: 7%; right: 7%; top: 30%; bottom: 30%; border: 2px solid rgba(255,255,255,.85); border-radius: 6px; box-shadow: 0 0 0 999px rgba(0,0,0,.35); pointer-events: none; transition: border-color .12s; }
+  .cam .guide::after { content: "Fit the barcode inside the box"; position: absolute; left: 0; right: 0; bottom: -26px; text-align: center; color: #fff; font-size: 13px; text-shadow: 0 1px 2px #000; }
+  .cam.busy .guide { border-color: rgba(255,210,120,.9); }
+  .cam.hit .guide { border-color: #6fd18a; }
   .camstate { padding: 10px 12px; font-size: 15px; border-radius: 0 0 4px 4px; display: none; }
   .camstate.ready { background: var(--paper); border: 1px solid var(--line); border-top: 0; color: var(--brown-soft); }
   .camstate.done { background: var(--ok); color: #fff; }
 </style>
 </head>
 <body>
-<header><h1>Jawda returns scan</h1><span class="ver" id="ver">v2.2 · 7 Oct 2026</span></header>
+<header><h1>Jawda returns scan</h1><span class="ver" id="ver">v2.3 · 7 Oct 2026</span></header>
 <nav>
   <button id="tab-scan" class="on">Scan</button>
   <button id="tab-summary">Summary <span id="tab-count"></span></button>
@@ -99,7 +105,7 @@
         <button id="camera">Use phone camera</button>
         <button id="cancel">Cancel this order</button>
       </div>
-      <video id="video" playsinline muted></video>
+      <div class="cam" id="cam"><video id="video" playsinline muted></video><div class="guide"></div></div>
       <div id="camstate" class="camstate"></div>
       <p class="hint">Press Enter on an empty scan box to finish the order.</p>
     </div>
@@ -6602,10 +6608,21 @@ if (typeof module !== 'undefined') module.exports = globalThis.JawdaPdf;
   });
 
   // ---------- Beep ----------
+  // iOS starts an audio context suspended and only lets a gesture wake it,
+  // so prime it on the first touch and resume before every beep.
   let ctx = null;
-  function tone(ok) {
+  function audio() {
     try {
       ctx = ctx || new (window.AudioContext || window.webkitAudioContext)();
+      if (ctx.state === 'suspended') ctx.resume();
+      return ctx;
+    } catch (e) { return null; }
+  }
+  document.addEventListener('pointerdown', audio, { once: true });
+  document.addEventListener('keydown', audio, { once: true });
+  function tone(ok) {
+    try {
+      ctx = audio(); if (!ctx) return;
       const o = ctx.createOscillator(), g = ctx.createGain();
       o.frequency.value = ok ? 1400 : 300; o.type = 'square'; g.gain.value = 0.08; o.connect(g); g.connect(ctx.destination);
       o.start(); o.stop(ctx.currentTime + (ok ? 0.08 : 0.25));
@@ -6630,18 +6647,26 @@ if (typeof module !== 'undefined') module.exports = globalThis.JawdaPdf;
     zxReader.setHints(hints);
     return zxReader;
   }
-  // Frames alternate upright and sideways, so a label held either way reads.
-  function zxingDetect(v) {
-    if (!v.videoWidth) return [];
-    const turn = (zxPass++ % 2) === 1;
-    const scale = Math.min(1, 800 / v.videoWidth);
-    const w = Math.round(v.videoWidth * scale), h = Math.round(v.videoHeight * scale);
+  // Only the guide box is read, so what you line up is what gets decoded.
+  // It is also far less to search than the whole frame, which keeps the
+  // preview smooth on a phone.
+  function grabBox(v, turn) {
+    const sx = v.videoWidth * 0.07, sw = v.videoWidth * 0.86;
+    const sy = v.videoHeight * 0.30, sh = v.videoHeight * 0.40;
+    const scale = Math.min(2, 900 / sw);
+    const w = Math.round(sw * scale), h = Math.round(sh * scale);
     work.width = turn ? h : w; work.height = turn ? w : h;
     const g = work.getContext('2d', { willReadFrequently: true });
     g.save();
-    if (turn) { g.translate(h / 2, w / 2); g.rotate(Math.PI / 2); g.drawImage(v, -w / 2, -h / 2, w, h); }
-    else { g.drawImage(v, 0, 0, w, h); }
+    if (turn) { g.translate(h / 2, w / 2); g.rotate(Math.PI / 2); g.drawImage(v, sx, sy, sw, sh, -w / 2, -h / 2, w, h); }
+    else { g.drawImage(v, sx, sy, sw, sh, 0, 0, w, h); }
     g.restore();
+    return work;
+  }
+  // Frames alternate upright and sideways, so a label held either way reads.
+  function zxingDetect(v) {
+    if (!v.videoWidth) return [];
+    grabBox(v, (zxPass++ % 2) === 1);
     const reader = zxingReader();
     try {
       const src = new ZXing.HTMLCanvasElementLuminanceSource(work);
@@ -6656,31 +6681,49 @@ if (typeof module !== 'undefined') module.exports = globalThis.JawdaPdf;
   }
   const NATIVE = 'BarcodeDetector' in window;
   async function readCodes(v) {
-    if (NATIVE) return (await detector.detect(v)).map(c => c.rawValue).filter(Boolean);
+    if (!v.videoWidth) return [];
+    // The native detector reads the same box, so the guide means one thing
+    // on every phone.
+    if (NATIVE) return (await detector.detect(grabBox(v, false))).map(c => c.rawValue).filter(Boolean);
     return zxingDetect(v);
   }
-  function stopCamera() { if (!stream) return; stream.getTracks().forEach(t => t.stop()); stream = null; $('video').style.display = 'none'; $('camstate').style.display = 'none'; $('camera').textContent = 'Use phone camera'; }
+  function stopCamera() {
+    if (!stream) return;
+    stream.getTracks().forEach(t => t.stop()); stream = null;
+    $('cam').style.display = 'none'; $('cam').className = 'cam';
+    $('camstate').style.display = 'none'; $('camera').textContent = 'Use phone camera';
+  }
   $('camera').addEventListener('click', async () => {
     const v = $('video');
     if (stream) { stopCamera(); focusScan(); return; }
     try {
       if (NATIVE) detector = new BarcodeDetector({ formats: ['code_128'] });
       stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-      v.srcObject = stream; v.style.display = 'block'; await v.play();
+      v.srcObject = stream; $('cam').style.display = 'block'; await v.play();
       $('camera').textContent = 'Stop camera'; armed = true; setCamState('ready');
+      // A paced loop rather than one read per animation frame: decoding is
+      // the expensive part, and running it flat out is what made the preview
+      // stutter.
       const loop = async () => {
-        if (!stream) return;
-        if (!ticking) {
-          ticking = true;
-          try {
-            const codes = await readCodes(v);
-            const now = Date.now();
-            if (codes.length) { lastSeenAt = now; if (armed) { armed = false; take(codes[0]); setCamState('done', String(codes[0]).toUpperCase()); } }
-            else if (!armed && now - lastSeenAt > CLEAR_MS) { armed = true; setCamState('ready'); }
-          } catch (e) { /* frame not ready */ }
-          ticking = false;
+        while (stream) {
+          if (!ticking) {
+            ticking = true;
+            $('cam').classList.add('busy');
+            try {
+              const codes = await readCodes(v);
+              const now = Date.now();
+              if (codes.length) {
+                lastSeenAt = now;
+                if (armed) { armed = false; $('cam').classList.add('hit'); take(codes[0]); setCamState('done', String(codes[0]).toUpperCase()); }
+              } else if (!armed && now - lastSeenAt > CLEAR_MS) {
+                armed = true; $('cam').classList.remove('hit'); setCamState('ready');
+              }
+            } catch (e) { /* frame not ready */ }
+            $('cam').classList.remove('busy');
+            ticking = false;
+          }
+          await new Promise(r => setTimeout(r, 90));
         }
-        requestAnimationFrame(loop);
       };
       loop();
       setTimeout(() => { if (stream && (!v.videoWidth || v.readyState < 2)) { stopCamera(); flash('The camera started but sent no picture. It is probably in use by another tab or app. Close that, then try again.', true); } }, 2500);
