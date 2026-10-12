@@ -77,7 +77,7 @@
 </style>
 </head>
 <body>
-<header><h1>Jawda returns scan</h1><span class="ver" id="ver">v2.3 · 7 Oct 2026</span></header>
+<header><h1>Jawda returns scan</h1><span class="ver" id="ver">v2.4 · 12 Oct 2026</span></header>
 <nav>
   <button id="tab-scan" class="on">Scan</button>
   <button id="tab-summary">Summary <span id="tab-count"></span></button>
@@ -6590,11 +6590,12 @@ if (typeof module !== 'undefined') module.exports = globalThis.JawdaPdf;
   function csvCell(v) { v = String(v ?? ''); return /[",\r\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
   function stamp() { const d = new Date(), p = (n) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}`; }
   function buildCSV() {
-    const lines = ['Order,SKU,Qty,Scanned'];
+    const lines = ['Order,SKU,Name,Qty,Scanned'];
     for (const o of orders) {
       const first = new Map(), tally = new Map();
       for (const it of o.items) { tally.set(it.sku, (tally.get(it.sku) || 0) + 1); if (!first.has(it.sku)) first.set(it.sku, it.at); }
-      for (const [sku, qty] of tally) lines.push([o.order, sku, qty, first.get(sku).slice(0, 16).replace('T', ' ')].map(csvCell).join(','));
+      // nameOf() reads the built-in SKU list; a code that is not in it leaves the cell blank.
+      for (const [sku, qty] of tally) lines.push([o.order, sku, nameOf(sku), qty, first.get(sku).slice(0, 16).replace('T', ' ')].map(csvCell).join(','));
     }
     return '\ufeff' + lines.join('\r\n') + '\r\n';
   }
